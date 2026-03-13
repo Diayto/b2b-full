@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import {
   LayoutDashboard, Upload, FileText, Settings, LogOut,
   ChevronLeft, ChevronRight, Building2, Menu, ClipboardList,
+  Megaphone,  // ← добавлена иконка для Маркетинга
 } from 'lucide-react';
 import { clearSession, getCurrentUser, getCompany } from '@/lib/store';
 
@@ -26,6 +27,8 @@ const navItems: NavItem[] = [
   { label: 'Документы', path: '/documents', icon: <FileText className="h-5 w-5" /> },
   { label: 'План', path: '/plan', icon: <ClipboardList className="h-5 w-5" /> },
   { label: 'Настройки', path: '/settings', icon: <Settings className="h-5 w-5" /> },
+  // Новый пункт — Маркетинг
+  { label: 'Маркетинг', path: '/marketing', icon: <Megaphone className="h-5 w-5" /> },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -66,7 +69,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-1">
         {navItems.map((item) => {
-          const isActive = location.pathname === item.path;
+          // Улучшаем активное состояние для /marketing/* (чтобы подсвечивалось на всех вложенных страницах)
+          const isActive = location.pathname === item.path || 
+                          (item.path === '/marketing' && location.pathname.startsWith('/marketing'));
           return (
             <Link
               key={item.path}
