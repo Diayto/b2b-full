@@ -874,22 +874,22 @@ export default function SalesCashPrioritiesPage() {
                               {moneyLeakageRows.slice(0, 15).map((r) => (
                                 <tr key={r.id} className="border-b border-border/30 hover:bg-muted/20 align-top">
                                   <td className="px-3 py-2">
-                                    <div className="font-medium text-foreground truncate max-w-[160px]">
+                                    <div className="font-medium text-foreground max-w-[160px] whitespace-normal break-words">
                                       {r.entityType === 'deal'
                                         ? `Сделка: ${r.dealExternalId ?? '—'}`
                                         : r.entityType === 'invoice'
                                           ? `Счёт: ${r.invoiceExternalId ?? '—'}`
                                           : `Клиент: ${r.customerExternalId ?? '—'}`}
                                     </div>
-                                    <div className="text-[10px] text-muted-foreground mt-1 truncate max-w-[160px]">
+                                    <div className="text-[10px] text-muted-foreground mt-1 max-w-[160px] whitespace-normal break-words">
                                       клиент: {r.customerExternalId ?? '—'}
                                     </div>
                                   </td>
                                   <td className="px-3 py-2">
-                                    <div className="font-medium text-foreground">{r.problemStage}</div>
+                                    <div className="font-medium text-foreground whitespace-normal break-words">{r.problemStage}</div>
                                   </td>
                                   <td className="px-3 py-2">
-                                    <div className="text-muted-foreground">{r.reason}</div>
+                                    <div className="text-muted-foreground whitespace-normal break-words">{r.reason}</div>
                                   </td>
                                   <td className="px-3 py-2 text-right whitespace-nowrap">
                                     <div className="flex items-center justify-end gap-2">
@@ -899,10 +899,10 @@ export default function SalesCashPrioritiesPage() {
                                       <TrustBadge level={r.trust} size="xs" />
                                     </div>
                                   </td>
-                                  <td className="px-3 py-2 text-muted-foreground truncate max-w-[160px]">{r.owner}</td>
+                                  <td className="px-3 py-2 text-muted-foreground max-w-[160px] whitespace-normal break-words">{r.owner}</td>
                                   <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{r.lastActivity ? formatDateRu(r.lastActivity) : '—'}</td>
                                   <td className="px-3 py-2">
-                                    <div className="text-muted-foreground">{r.recommendedNextAction}</div>
+                                    <div className="text-muted-foreground whitespace-normal break-words">{r.recommendedNextAction}</div>
                                   </td>
                                 </tr>
                               ))}
@@ -994,216 +994,11 @@ export default function SalesCashPrioritiesPage() {
                   </CardContent>
                 </Card>
 
-                {/* Stalled deals */}
-                <Card className="rct-card hidden">
-                  <CardHeader>
-                    <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
-                      Застрявшие сделки
-                      <MetricHelpIcon helpKey="stalled_deals" />
-                    </CardTitle>
-                    <CardDescription className="text-muted-foreground">
-                      Сделки, которые теряют темп и ставят деньги под угрозу.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {true ? (
-                      <p className="text-sm text-muted-foreground">
-                        Застрявшие сделки уже учтены в таблице риска выше — смотрите “Причина” и “Следующий шаг”.
-                      </p>
-                    ) : (
-                      (() => {
-                        const today = new Date();
-                        const todayTs = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-                        const bucketForDays = (daysLate: number) => {
-                          if (daysLate <= 7) return '0-7 дней';
-                          if (daysLate <= 14) return '8-14 дней';
-                          if (daysLate <= 30) return '15-30 дней';
-                          return '30+ дней';
-                        };
-                        const buckets = [
-                          { label: '0-7 дней', min: 0, max: 7 },
-                          { label: '8-14 дней', min: 8, max: 14 },
-                          { label: '15-30 дней', min: 15, max: 30 },
-                          { label: '30+ дней', min: 31, max: Infinity },
-                        ];
-                        const perBucket = buckets.map((b) => ({ label: b.label, count: 0, amount: 0 }));
-                        const normalized = periodStalledDeals.map((d) => {
-                          const ts = d.lastActivityDate ? new Date(d.lastActivityDate + 'T00:00:00').getTime() : NaN;
-                          const ageDays = Number.isFinite(ts) ? Math.max(0, Math.floor((todayTs - ts) / 86_400_000)) : 0;
-                          const label = bucketForDays(ageDays);
-                          const bucketIdx = buckets.findIndex((b) => label === b.label);
-                          return { ...d, ageDays, bucketIdx, bucketLabel: label };
-                        });
-
-                        for (const d of normalized) {
-                          if (d.bucketIdx < 0) continue;
-                          perBucket[d.bucketIdx].count += 1;
-                          perBucket[d.bucketIdx].amount += d.overdueAmountLinked;
-                        }
-
-                        const listTop = normalized
-                          .slice()
-                          .sort((a, b) => b.overdueAmountLinked - a.overdueAmountLinked)
-                          .slice(0, 10);
-                        const maxAmount = Math.max(1, ...perBucket.map((b) => b.amount));
-
-                        return (
-                          <div className="space-y-4">
-                            <div className="rct-card-inset p-3.5">
-                              <p className="text-sm font-semibold text-foreground mb-2">По возрасту</p>
-                              <div className="space-y-2">
-                                {perBucket.map((b) => {
-                                  const w = Math.round((b.amount / maxAmount) * 100);
-                                  return (
-                                    <div key={b.label} className="space-y-1">
-                                      <div className="flex items-center justify-between gap-3">
-                                        <span className="text-xs font-medium text-muted-foreground">{b.label}</span>
-                                        <span className="text-xs font-semibold text-foreground whitespace-nowrap">
-                                          {b.count} · {formatKZT(b.amount)}
-                                        </span>
-                                      </div>
-                                      <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                        <div className="h-full bg-rose-400/70 dark:bg-rose-500/60 rounded-full" style={{ width: `${w}%` }} />
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-
-                            <div className="space-y-2">
-                              {listTop.map((d) => (
-                                <div key={d.dealExternalId} className="rct-card-inset p-3">
-                                  <div className="flex items-start justify-between gap-3">
-                                    <div className="min-w-0">
-                                      <p className="text-sm font-semibold text-foreground truncate">{d.dealExternalId}</p>
-                                      <p className="text-xs text-muted-foreground mt-1">
-                                        активность: {formatDateRu(d.lastActivityDate)} · {d.bucketLabel}
-                                      </p>
-                                    </div>
-                                    <div className="text-right">
-                                      <p className="text-sm font-semibold text-foreground whitespace-nowrap">{formatKZT(d.overdueAmountLinked)}</p>
-                                    </div>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })()
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* Invoices */}
-                <Card className="rct-card hidden">
-                  <CardHeader>
-                    <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
-                      Неоплаченные и просроченные счета
-                      <MetricHelpIcon helpKey="risk_flags" />
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {(() => {
-                      const overdueInvoices = periodOverdueInvoices;
-                      const unpaidInvoices = periodUnpaidInvoices;
-                      const delayedCustomers = periodDelayedCustomers;
-
-                      const overdueTotal = overdueInvoices.reduce((s, x) => s + x.overdueAmount, 0);
-                      const unpaidTotal = unpaidInvoices.reduce((s, x) => s + x.outstanding, 0);
-                      const delayedTotal = delayedCustomers.reduce((s, x) => s + x.overdueAmount, 0);
-                      const nonOverdueUnpaid = unpaidTotal; // unpaidInvoices уже исключают просрочку
-
-                      const rankedOverdue = overdueInvoices
-                        .slice()
-                        .sort((a, b) => b.overdueAmount - a.overdueAmount)
-                        .slice(0, 7);
-                      const maxOverdue = Math.max(1, ...rankedOverdue.map((x) => x.overdueAmount));
-
-                      return (
-                        <>
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                            <div className="rct-stat-box-amber">
-                              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Просрочка</div>
-                              <div className="text-xl font-bold text-foreground mt-2">{formatKZT(overdueTotal)}</div>
-                              <div className="text-xs text-muted-foreground mt-1">{overdueInvoices.length} счет(ов)</div>
-                            </div>
-                            <div className="rct-stat-box-slate">
-                              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Неоплачено</div>
-                              <div className="text-xl font-bold text-foreground mt-2">{formatKZT(nonOverdueUnpaid)}</div>
-                              <div className="text-xs text-muted-foreground mt-1">без просрочки</div>
-                            </div>
-                            <div className="rct-stat-box-emerald">
-                              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Задержка клиентов</div>
-                              <div className="text-xl font-bold text-foreground mt-2">{formatKZT(delayedTotal)}</div>
-                              <div className="text-xs text-muted-foreground mt-1">{delayedCustomers.length} клиентов</div>
-                            </div>
-                          </div>
-
-                          {rankedOverdue.length > 0 && (
-                            <div className="rct-card-inset p-3">
-                              <p className="text-sm font-semibold text-foreground mb-2">Просроченные счета (топ)</p>
-                              <div className="space-y-2">
-                                {rankedOverdue.map((inv) => (
-                                  <RankedListItem
-                                    key={inv.invoiceExternalId ?? `${inv.customerExternalId}_${inv.dueDate}`}
-                                    label={inv.invoiceExternalId ?? 'Счёт'}
-                                    sublabel={`клиент: ${inv.customerExternalId ?? '—'} · due: ${formatDateRu(inv.dueDate)}`}
-                                    value={formatKZT(inv.overdueAmount)}
-                                    progressPct={Math.round((inv.overdueAmount / maxOverdue) * 100)}
-                                    barColor="rose"
-                                  />
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </CardContent>
-                </Card>
+                {/* (уплотнение) stalled / invoices / delayed вынесены в единую таблицу риска */}
               </div>
 
               {/* Right column */}
               <div className="space-y-6">
-                {/* Delayed customers */}
-                <Card className="rct-card hidden">
-                  <CardHeader>
-                    <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
-                      Клиенты с задержкой
-                      <MetricHelpIcon helpKey="delayed_customers" />
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {periodDelayedCustomers.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">Нет клиентов с задержкой.</p>
-                    ) : (
-                      (() => {
-                        const top = periodDelayedCustomers
-                          .slice()
-                          .sort((a, b) => b.overdueAmount - a.overdueAmount)
-                          .slice(0, 8);
-                        const max = Math.max(1, ...top.map((c) => c.overdueAmount));
-
-                        return (
-                          <div className="space-y-3">
-                            {top.map((c) => (
-                              <RankedListItem
-                                key={c.customerExternalId}
-                                label={c.customerExternalId}
-                                sublabel={`${c.overdueInvoiceCount} просроченных`}
-                                value={formatKZT(c.overdueAmount)}
-                                progressPct={Math.round((c.overdueAmount / max) * 100)}
-                                barColor="amber"
-                              />
-                            ))}
-                          </div>
-                        );
-                      })()
-                    )}
-                  </CardContent>
-                </Card>
-
                 {/* Top risks (diagnostics) */}
                 <Card className="rct-card">
                   <CardHeader className="rct-card-padding pb-2">
