@@ -1,5 +1,6 @@
 // ============================================================
-// BizPulse KZ — Marketing → Revenue Intelligence Panel
+// BizPulse KZ — Marketing Intelligence Panel (Redesigned)
+// 3-layer system: Organic Funnel → Channel Table → Content
 // ============================================================
 
 import { useMemo, useState } from 'react';
@@ -9,18 +10,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import ControlTowerKpiCard from '@/components/controltower/ControlTowerKpiCard';
 import SectionHeader from '@/components/controltower/SectionHeader';
-import RankedListItem from '@/components/controltower/RankedListItem';
 import EmptyStateCard from '@/components/controltower/EmptyStateCard';
 import { CollapsibleSection } from '@/components/controltower';
-import {
-  useChartTheme,
-  buildAxisTick,
-  buildTooltipStyle,
-  buildLegendStyle,
-  CHART_MARGIN,
-  CHART_COLORS,
-  truncateLabel,
-} from '@/lib/chartStyles';
+import { cn } from '@/lib/utils';
 import type { DateRange } from '@/lib/types';
 import {
   getSession,
@@ -32,25 +24,21 @@ import {
   getCustomers,
   getMarketingSpend,
   getManagers,
+  getContentMetrics,
   seedDemoData,
 } from '@/lib/store';
-import { calculateRevenueControlTowerAnalytics } from '@/lib/analytics';
+import {
+  calculateRevenueControlTowerAnalytics,
+  computeSourcePerformance,
+  classifySources,
+  computeContentPerformance,
+  explainROI,
+} from '@/lib/analytics';
 import { formatKZT } from '@/lib/metrics';
 import type { RevenueControlTowerAnalytics } from '@/lib/analytics/revenueControlTower';
 import RecommendationsCard from '@/components/RecommendationsCard';
 import { buildRecommendations } from '@/lib/recommendations';
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Legend,
-  ResponsiveContainer,
-  Tooltip as RechartsTooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
-import { AlertTriangle, TrendingDown, TrendingUp } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { AlertTriangle, ArrowRight, TrendingDown, TrendingUp } from 'lucide-react';
 
 function percentFromRatio(r: number): string {
   if (!Number.isFinite(r)) return '—';
@@ -113,35 +101,40 @@ function getDateRangeFromSelection(params: {
   return { from: new Date(minT).toISOString().split('T')[0], to: new Date(maxT).toISOString().split('T')[0] };
 }
 
-function FunnelMiniBar({
-  items,
+// Funnel step component with conversion arrows
+function FunnelStep({
+  label,
+  value,
+  conversionRate,
+  isLast,
+  colorClass,
+  maxValue,
 }: {
-  items: Array<{ label: string; value: number; pct: string | null; colorIdx: number }>;
+  label: string;
+  value: number;
+  conversionRate?: string;
+  isLast?: boolean;
+  colorClass: string;
+  maxValue: number;
 }) {
-  const max = Math.max(1, ...items.map((i) => i.value));
-  const colors = [
-    'bg-foreground/50',
-    'bg-primary/60',
-    'bg-teal-600/60 dark:bg-teal-500/50',
-    'bg-teal-500/60 dark:bg-teal-400/50',
-  ];
+  const w = Math.round((value / Math.max(1, maxValue)) * 100);
   return (
-    <div className="space-y-2.5">
-      {items.map((s) => {
-        const w = Math.round((s.value / max) * 100);
-        return (
-          <div key={s.label} className="space-y-1">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-xs font-medium text-muted-foreground">{s.label}</span>
-              <span className="text-xs font-semibold text-foreground">{s.value}</span>
-            </div>
-            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-              <div className={cn('h-full rounded-full', colors[s.colorIdx] ?? 'bg-muted-foreground')} style={{ width: `${w}%` }} />
-            </div>
-            {s.pct ? <p className="text-[10px] text-muted-foreground">{s.pct} конв.</p> : null}
-          </div>
-        );
-      })}
+    <div className="flex items-center gap-3">
+      <div className="flex-1 space-y-1">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-medium text-muted-foreground">{label}</span>
+          <span className="text-sm font-bold text-foreground">{value}</span>
+        </div>
+        <div className="h-3 bg-muted rounded-full overflow-hidden">
+          <div className={cn('h-full rounded-full transition-all', colorClass)} style={{ width: `${w}%` }} />
+        </div>
+      </div>
+      {!isLast && conversionRate && (
+        <div className="flex flex-col items-center shrink-0 w-16">
+          <ArrowRight className="h-3 w-3 text-muted-foreground" />
+          <span className="text-[10px] font-semibold text-primary">{conversionRate}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -157,7 +150,6 @@ export default function MarketingToRevenueDashboard() {
 
   const companyId = session.companyId;
   const [dateRange, setDateRange] = useState<'30d' | '90d' | '180d' | 'all'>('180d');
-  const chartTheme = useChartTheme();
 
   const channelCampaigns = useMemo(() => getChannelCampaigns(companyId), [companyId]);
   const leads = useMemo(() => getLeads(companyId), [companyId]);
@@ -167,6 +159,7 @@ export default function MarketingToRevenueDashboard() {
   const customers = useMemo(() => getCustomers(companyId), [companyId]);
   const marketingSpend = useMemo(() => getMarketingSpend(companyId), [companyId]);
   const managers = useMemo(() => getManagers(companyId), [companyId]);
+  const contentMetrics = useMemo(() => getContentMetrics(companyId), [companyId]);
 
   const analyticsRange: DateRange = useMemo(
     () =>
@@ -203,6 +196,19 @@ export default function MarketingToRevenueDashboard() {
     return m;
   }, [channelCampaigns]);
 
+  const sourcePerformanceRows = useMemo(
+    () => computeSourcePerformance(analytics.paidRevenueBySource.rows, channelNameById),
+    [analytics.paidRevenueBySource.rows, channelNameById],
+  );
+  const { best: bestSources, worst: worstSources } = useMemo(
+    () => classifySources(sourcePerformanceRows),
+    [sourcePerformanceRows],
+  );
+  const contentPerformance = useMemo(
+    () => computeContentPerformance(contentMetrics, 5),
+    [contentMetrics],
+  );
+
   const recommendationItems = useMemo(
     () =>
       buildRecommendations({
@@ -210,7 +216,7 @@ export default function MarketingToRevenueDashboard() {
         analytics,
         channelNameById,
         formatMoney: formatKZT,
-        maxItems: 3,
+        maxItems: 4,
       }),
     [analytics, channelNameById]
   );
@@ -224,13 +230,6 @@ export default function MarketingToRevenueDashboard() {
   const rows = analytics.paidRevenueBySource.rows;
   const hasCoreData = rows.length > 0 || leads.length > 0 || deals.length > 0 || marketingSpend.length > 0;
 
-  const rowsSortedByLeads = useMemo(() => [...rows].sort((a, b) => b.leads - a.leads), [rows]);
-  const rowsSortedByPaidRevenue = useMemo(() => [...rows].sort((a, b) => b.paidRevenue - a.paidRevenue), [rows]);
-
-  const axisTick = buildAxisTick(chartTheme);
-  const tooltipStyle = buildTooltipStyle(chartTheme);
-  const legendStyle = buildLegendStyle(chartTheme);
-
   const bottleneck = useMemo(() => {
     return [
       { key: 'lead_to_deal', v: analytics.funnelDropOff.dropOffLeadToDeal, label: 'лид → сделка' },
@@ -239,13 +238,36 @@ export default function MarketingToRevenueDashboard() {
     ].sort((a, b) => b.v - a.v)[0];
   }, [analytics.funnelDropOff]);
 
+  // Channel performance table data sorted by ROI
+  const channelTableData = useMemo(() => {
+    return rows
+      .map((r) => {
+        const roi = r.marketingSpend > 0 ? ((r.paidRevenue - r.marketingSpend) / r.marketingSpend) * 100 : null;
+        const convRate = r.leads > 0 ? (r.wonDeals / r.leads) * 100 : 0;
+        return {
+          id: r.channelCampaignExternalId,
+          name: channelNameById.get(r.channelCampaignExternalId) ?? r.channelCampaignExternalId,
+          cost: r.marketingSpend,
+          leads: r.leads,
+          deals: r.deals,
+          wonDeals: r.wonDeals,
+          convRate,
+          revenue: r.paidRevenue,
+          roi,
+          leadToDeal: r.leadToDealConversion,
+          dealToPaid: r.dealToPaidConversion,
+        };
+      })
+      .sort((a, b) => (b.roi ?? -999) - (a.roi ?? -999));
+  }, [rows, channelNameById]);
+
   return (
     <div className="rct-page p-4 lg:p-6 max-w-[1400px] mx-auto space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h2 className="rct-page-title">Маркетинг → Выручка</h2>
-          <p className="rct-body-micro mt-1">От лида до оплаты: где деньги, где потери, что делать</p>
+          <p className="rct-body-micro mt-1">От лида до оплаты: воронка, каналы и эффективность</p>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
@@ -260,7 +282,7 @@ export default function MarketingToRevenueDashboard() {
               <SelectItem value="all">Всё время</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" onClick={() => navigate('/marketing/data')}>Открыть данные</Button>
+          <Button variant="outline" onClick={() => navigate('/marketing/data')}>Данные</Button>
           <Button variant="outline" onClick={() => navigate('/sales-cash')}>Sales/Cash</Button>
           <Button onClick={() => navigate('/uploads')}>Загрузки</Button>
         </div>
@@ -281,7 +303,7 @@ export default function MarketingToRevenueDashboard() {
       {hasCoreData && (
         <>
           {/* KPI row */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <ControlTowerKpiCard
               title="CPL"
               value={analytics.cpl.value > 0 ? moneyOrDash(analytics.cpl.value) : '—'}
@@ -303,283 +325,389 @@ export default function MarketingToRevenueDashboard() {
               }}
             />
             <ControlTowerKpiCard
-              title="Цена выигранной сделки"
+              title="Цена won-сделки"
               value={analytics.costPerWonDeal.value > 0 ? moneyOrDash(analytics.costPerWonDeal.value) : '—'}
               subtitle={calculationBadge(analytics.costPerWonDeal.calculationMode) ?? 'маркетинг / won deals'}
               status={analytics.costPerWonDeal.calculationMode === 'fallback' || analytics.costPerWonDeal.value > 900000 ? 'warning' : 'success'}
               detail={{
                 what: 'Маркетинговые расходы на одну выигранную сделку',
-                why: 'Связывает маркетинг с реальными продажами, а не только лидами.',
+                why: 'Связывает маркетинг с реальными продажами.',
+              }}
+            />
+            <ControlTowerKpiCard
+              title="Bottleneck"
+              value={bottleneck.label}
+              subtitle={`провал ${percentFromRatio(bottleneck.v)}`}
+              status="danger"
+              detail={{
+                what: `Больше всего теряется на шаге: ${bottleneck.label}`,
+                why: 'Устранение bottleneck даёт самый быстрый рост конверсии в деньги.',
               }}
             />
           </div>
 
-          {/* Bottleneck indicator + funnel summary */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="rct-card px-5 py-4">
-              <div className="flex items-center gap-2 mb-3">
-                <AlertTriangle className="h-4 w-4 text-rose-500 dark:text-rose-400" />
-                <p className="text-sm font-semibold text-foreground">Bottleneck воронки</p>
+          {/* ============================================= */}
+          {/* LAYER A: ORGANIC / SOCIAL FUNNEL              */}
+          {/* ============================================= */}
+          <section className="space-y-4">
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-bold text-foreground">Воронка: от лида до оплаты</h3>
+              <Badge variant="outline" className="text-xs">
+                {analytics.funnelDropOff.leads} лидов → {analytics.funnelDropOff.paidWonDeals} оплачено
+              </Badge>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              {/* Full funnel with conversion rates */}
+              <div className="rct-card rct-card-padding">
+                <SectionHeader title="Сквозная воронка" size="sm" description="Конверсии между каждым шагом" />
+                <div className="mt-4 space-y-4">
+                  {(() => {
+                    const maxVal = Math.max(
+                      analytics.funnelDropOff.leads,
+                      analytics.funnelDropOff.deals,
+                      analytics.funnelDropOff.wonDeals,
+                      analytics.funnelDropOff.paidWonDeals,
+                      1,
+                    );
+                    return (
+                      <>
+                        <FunnelStep label="Лиды" value={analytics.funnelDropOff.leads} conversionRate={percentFromRatio(analytics.funnelDropOff.leadToDealRate)} colorClass="bg-foreground/60" maxValue={maxVal} />
+                        <FunnelStep label="Сделки" value={analytics.funnelDropOff.deals} conversionRate={percentFromRatio(analytics.funnelDropOff.dealToWonRate)} colorClass="bg-primary/60" maxValue={maxVal} />
+                        <FunnelStep label="Выигранные" value={analytics.funnelDropOff.wonDeals} conversionRate={percentFromRatio(analytics.funnelDropOff.wonToPaidRate)} colorClass="bg-teal-600/60 dark:bg-teal-500/50" maxValue={maxVal} />
+                        <FunnelStep label="Оплачено" value={analytics.funnelDropOff.paidWonDeals} isLast colorClass="bg-teal-500/70 dark:bg-teal-400/60" maxValue={maxVal} />
+                      </>
+                    );
+                  })()}
+                </div>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Потери на шаге: <span className="font-medium text-foreground">{bottleneck.label}</span>
-              </p>
-              <div className="mt-2">
-                <Badge variant="outline" className="text-xs text-rose-600 dark:text-rose-400 border-rose-300/60 dark:border-rose-800/40">
-                  провал {percentFromRatio(bottleneck.v)}
-                </Badge>
+
+              {/* Drop-off analysis */}
+              <div className="rct-card rct-card-padding">
+                <SectionHeader title="Точки потерь" size="sm" description="Где теряются потенциальные клиенты" />
+                <div className="mt-4 space-y-3">
+                  {[
+                    {
+                      label: 'Лид → Сделка',
+                      dropOff: analytics.funnelDropOff.dropOffLeadToDeal,
+                      lost: analytics.funnelDropOff.leads - analytics.funnelDropOff.deals,
+                      rate: analytics.funnelDropOff.leadToDealRate,
+                      isCritical: analytics.insightSignals.funnelBottleneckStage === 'lead_to_deal',
+                    },
+                    {
+                      label: 'Сделка → Выигранная',
+                      dropOff: analytics.funnelDropOff.dropOffDealToWon,
+                      lost: analytics.funnelDropOff.deals - analytics.funnelDropOff.wonDeals,
+                      rate: analytics.funnelDropOff.dealToWonRate,
+                      isCritical: analytics.insightSignals.funnelBottleneckStage === 'deal_to_won',
+                    },
+                    {
+                      label: 'Выигранная → Оплата',
+                      dropOff: analytics.funnelDropOff.dropOffWonToPaid,
+                      lost: analytics.funnelDropOff.wonDeals - analytics.funnelDropOff.paidWonDeals,
+                      rate: analytics.funnelDropOff.wonToPaidRate,
+                      isCritical: analytics.insightSignals.funnelBottleneckStage === 'won_to_paid',
+                    },
+                  ].map((step) => (
+                    <div
+                      key={step.label}
+                      className={cn(
+                        'rct-card-inset p-3',
+                        step.isCritical && 'ring-1 ring-rose-300/60 dark:ring-rose-800/40',
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          {step.isCritical && <AlertTriangle className="h-3.5 w-3.5 text-rose-500 shrink-0" />}
+                          <span className="text-sm font-medium text-foreground">{step.label}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">потеряно: {step.lost}</span>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              'text-xs',
+                              step.isCritical
+                                ? 'text-rose-600 dark:text-rose-400 border-rose-300/60'
+                                : 'text-muted-foreground',
+                            )}
+                          >
+                            {percentFromRatio(step.dropOff)} drop
+                          </Badge>
+                        </div>
+                      </div>
+                      {step.isCritical && (
+                        <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-1.5">
+                          Главная точка потерь — требует приоритетного внимания
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* ============================================= */}
+          {/* LAYER B: CHANNEL PERFORMANCE TABLE            */}
+          {/* ============================================= */}
+          <section className="space-y-4">
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-bold text-foreground">Эффективность каналов</h3>
+              <Badge variant="outline" className="text-xs">{channelTableData.length} каналов</Badge>
+            </div>
+
+            {channelTableData.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Недостаточно данных для анализа каналов.</p>
+            ) : (
+              <div className="rct-card overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/30">
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground text-xs">Канал</th>
+                        <th className="text-right px-4 py-3 font-medium text-muted-foreground text-xs">Расход</th>
+                        <th className="text-right px-4 py-3 font-medium text-muted-foreground text-xs">Лиды</th>
+                        <th className="text-right px-4 py-3 font-medium text-muted-foreground text-xs">Конверсия</th>
+                        <th className="text-right px-4 py-3 font-medium text-muted-foreground text-xs">Выручка</th>
+                        <th className="text-right px-4 py-3 font-medium text-muted-foreground text-xs">ROI</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {channelTableData.map((ch) => {
+                        const roiPositive = ch.roi !== null && ch.roi > 0;
+                        const roiNegative = ch.roi !== null && ch.roi < 0;
+                        return (
+                          <tr key={ch.id} className="border-b border-border/30 hover:bg-muted/20 transition-colors">
+                            <td className="px-4 py-3">
+                              <span className="font-medium text-foreground text-sm truncate block max-w-[200px]">{ch.name}</span>
+                            </td>
+                            <td className="px-4 py-3 text-right text-muted-foreground">{moneyOrDash(ch.cost)}</td>
+                            <td className="px-4 py-3 text-right text-foreground font-medium">{ch.leads}</td>
+                            <td className="px-4 py-3 text-right">
+                              <span className={cn(
+                                'text-sm',
+                                ch.convRate >= 20 ? 'text-teal-600 dark:text-teal-400' : ch.convRate >= 10 ? 'text-foreground' : 'text-rose-600 dark:text-rose-400',
+                              )}>
+                                {ch.convRate.toFixed(1)}%
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right font-semibold text-foreground">{moneyOrDash(ch.revenue)}</td>
+                            <td className="px-4 py-3 text-right">
+                              {ch.roi !== null ? (
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    'text-xs',
+                                    roiPositive && 'text-teal-600 dark:text-teal-400 border-teal-300/60 dark:border-teal-800/40',
+                                    roiNegative && 'text-rose-600 dark:text-rose-400 border-rose-300/60 dark:border-rose-800/40',
+                                  )}
+                                >
+                                  {ch.roi > 0 ? '+' : ''}{ch.roi.toFixed(0)}%
+                                </Badge>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {analytics.paidRevenueBySource.unattributedPaidRevenue > 0 && (
+                  <div className="px-4 py-2 bg-rose-50/30 dark:bg-rose-950/10 border-t">
+                    <p className="text-xs text-rose-600 dark:text-rose-400">
+                      Не размечено: {moneyOrDash(analytics.paidRevenueBySource.unattributedPaidRevenue)} — проверьте цепочку атрибуции
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+
+          {/* ============================================= */}
+          {/* LAYER C: CONTENT / SOURCE ANALYTICS           */}
+          {/* ============================================= */}
+          <section className="space-y-4">
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-bold text-foreground">Аналитика по источникам</h3>
+            </div>
+
+            {/* Content analytics (when content metrics exist) */}
+            {contentMetrics.length === 0 && (
+              <div className="rct-card-inset p-4 mb-5 border-dashed">
+                <p className="text-sm text-muted-foreground">
+                  <strong>Нет данных по контенту.</strong> Загрузите файл content_metrics в разделе Загрузки — тогда появится аналитика по публикациям и вовлечению.
+                </p>
+              </div>
+            )}
+            {contentMetrics.length > 0 && (
+              <div className="rct-card rct-card-padding mb-5">
+                <SectionHeader title="Контент / органика" size="sm" description="Топ и слабые публикации по вовлечению" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">Лучший контент</p>
+                    <div className="space-y-2">
+                      {contentPerformance.topPerforming.slice(0, 3).map((c) => (
+                        <div key={c.contentId} className="rct-card-inset p-3 flex justify-between items-center">
+                          <span className="text-sm truncate max-w-[180px]">{c.contentTitle || c.contentId}</span>
+                          <Badge variant="outline" className="text-[10px] shrink-0">
+                            {(c.engagementRate * 100).toFixed(1)}% ER
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">Слабый контент</p>
+                    <div className="space-y-2">
+                      {contentPerformance.worstPerforming.slice(0, 3).map((c) => (
+                        <div key={c.contentId} className="rct-card-inset p-3 flex justify-between items-center">
+                          <span className="text-sm truncate max-w-[180px]">{c.contentTitle || c.contentId}</span>
+                          <Badge variant="outline" className="text-[10px] text-rose-600 shrink-0">
+                            {(c.engagementRate * 100).toFixed(1)}% ER
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                {contentPerformance.byPlatform.length > 0 && (
+                  <div className="mt-4 pt-4 border-t">
+                    <p className="text-xs font-medium text-muted-foreground mb-2">По платформам</p>
+                    <div className="flex flex-wrap gap-2">
+                      {contentPerformance.byPlatform.slice(0, 5).map((p) => (
+                        <Badge key={p.platform} variant="secondary" className="text-xs">
+                          {p.label}: {p.contentCount} постов, {p.totalLeads} лидов
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {/* Best performing sources */}
+              <div className="rct-card rct-card-padding">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4 text-teal-500" />
+                    <SectionHeader title="Лучшие источники" size="sm" />
+                  </div>
+                  <Badge variant="secondary" className="text-xs text-teal-700 dark:text-teal-400">топ</Badge>
+                </div>
+                {bestSources.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Нет данных.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {bestSources.map((s, idx) => (
+                      <div key={s.id} className="rct-card-inset p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-foreground truncate">
+                              {idx + 1}. {s.name}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {s.leads} лидов · {percentFromRatio(s.leadToDeal)} лид→сделка
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-sm font-bold text-teal-600 dark:text-teal-400">{moneyOrDash(s.revenue)}</p>
+                            {s.roi !== null && (
+                              <p className="text-[11px] text-muted-foreground">ROI: {s.roi.toFixed(0)}%</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Worst performing sources */}
+              <div className="rct-card rct-card-padding">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="flex items-center gap-2">
+                    <TrendingDown className="h-4 w-4 text-rose-500" />
+                    <SectionHeader title="Слабые источники" size="sm" />
+                  </div>
+                  <Badge variant="secondary" className="text-xs text-rose-600 dark:text-rose-400">внимание</Badge>
+                </div>
+                {worstSources.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Нет данных.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {worstSources.map((s, idx) => (
+                      <div key={s.id} className="rct-card-inset p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-foreground truncate">
+                              {idx + 1}. {s.name}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {s.leads} лидов · {percentFromRatio(s.dealToPaid)} сделка→оплата
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-sm font-medium text-rose-600 dark:text-rose-400">{moneyOrDash(s.revenue)}</p>
+                            {s.roi !== null && (
+                              <p className="text-[11px] text-muted-foreground">ROI: {s.roi.toFixed(0)}%</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="lg:col-span-2 rct-card px-5 py-4">
-              <p className="text-sm font-semibold text-foreground mb-3">Воронка</p>
-              <FunnelMiniBar
-                items={[
-                  { label: 'Лиды', value: analytics.funnelDropOff.leads, pct: null, colorIdx: 0 },
-                  { label: 'Сделки', value: analytics.funnelDropOff.deals, pct: percentFromRatio(analytics.funnelDropOff.leadToDealRate), colorIdx: 1 },
-                  { label: 'Выигранные', value: analytics.funnelDropOff.wonDeals, pct: percentFromRatio(analytics.funnelDropOff.dealToWonRate), colorIdx: 2 },
-                  { label: 'Оплачено', value: analytics.funnelDropOff.paidWonDeals, pct: percentFromRatio(analytics.funnelDropOff.wonToPaidRate), colorIdx: 3 },
-                ]}
-              />
-            </div>
-          </div>
+            {/* Funnel by channel - detailed collapsible */}
+            <CollapsibleSection
+              title="Детализация воронки по каналам"
+              summary={`${channelTableData.length} каналов`}
+              badge={<Badge variant="outline" className="text-xs">лид→сделка→оплата</Badge>}
+              defaultOpen={false}
+            >
+              <div className="space-y-3">
+                {channelTableData.slice(0, 8).map((ch) => (
+                  <div key={ch.id} className="rct-card-inset p-3">
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <p className="text-sm font-medium text-foreground truncate">{ch.name}</p>
+                      <div className="flex gap-2 shrink-0">
+                        <Badge variant="outline" className="text-[10px]">
+                          L→D: {percentFromRatio(ch.leadToDeal)}
+                        </Badge>
+                        <Badge variant="outline" className="text-[10px]">
+                          D→P: {percentFromRatio(ch.dealToPaid)}
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="flex gap-4 text-xs text-muted-foreground">
+                      <span>{ch.leads} лидов</span>
+                      <span>{ch.deals} сделок</span>
+                      <span>{ch.wonDeals} won</span>
+                      <span className="font-medium text-foreground">{moneyOrDash(ch.revenue)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CollapsibleSection>
+          </section>
 
-          {/* Recommendations */}
+          {/* ============================================= */}
+          {/* RECOMMENDATIONS (bottom)                       */}
+          {/* ============================================= */}
           <RecommendationsCard
-            title="Что делать дальше"
-            description="Влияние на деньги и конкретный следующий шаг."
+            title="Рекомендации"
+            description="Что мешает деньгам и какой следующий шаг."
             items={recommendationItems}
             helpKey="priority_actions"
             compact
           />
-
-          {/* Source analysis — collapsible sections */}
-          <div className="space-y-4">
-            <CollapsibleSection
-              title="Источники: воронка по каналам"
-              summary={`${rowsSortedByLeads.length} источников`}
-              badge={<Badge variant="outline" className="text-xs">лиды → сделки → выигранные</Badge>}
-              defaultOpen
-            >
-              <div className="space-y-5">
-                {rowsSortedByLeads.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Недостаточно данных.</p>
-                ) : (
-                  <>
-                    <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Сравнение по воронке</p>
-                      <div className="h-[220px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={rowsSortedByLeads.slice(0, 6).map((r) => ({
-                            name: channelNameById.get(r.channelCampaignExternalId) ?? r.channelCampaignExternalId,
-                            leads: r.leads,
-                            deals: r.deals,
-                            wonDeals: r.wonDeals,
-                          }))} layout="vertical" margin={CHART_MARGIN}>
-                            <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridStroke} vertical={false} />
-                            <XAxis type="number" hide tick={axisTick} axisLine={false} />
-                            <YAxis dataKey="name" type="category" width={160} tick={axisTick} tickFormatter={truncateLabel} />
-                            <RechartsTooltip contentStyle={tooltipStyle.contentStyle} wrapperStyle={tooltipStyle.wrapperStyle} formatter={(v: unknown) => (!Number.isFinite(Number(v)) ? '—' : String(v))} />
-                            <Legend wrapperStyle={legendStyle.wrapperStyle} iconSize={legendStyle.iconSize} />
-                            <Bar dataKey="leads" name="Лиды" fill={CHART_COLORS.leads} barSize={8} radius={[4, 4, 0, 0]} />
-                            <Bar dataKey="deals" name="Сделки" fill={CHART_COLORS.deals} barSize={8} radius={[4, 4, 0, 0]} />
-                            <Bar dataKey="wonDeals" name="Выигранные" fill={CHART_COLORS.won} barSize={8} radius={[4, 4, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-
-                    <div className="border-t border-border/40 pt-4">
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Конверсии по источнику</p>
-                      <div className="h-[190px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={rowsSortedByPaidRevenue.slice(0, 6).map((r) => ({
-                            name: channelNameById.get(r.channelCampaignExternalId) ?? r.channelCampaignExternalId,
-                            leadToDeal: r.leadToDealConversion * 100,
-                            dealToPaid: r.dealToPaidConversion * 100,
-                          }))} layout="vertical" margin={CHART_MARGIN}>
-                            <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridStroke} vertical={false} />
-                            <XAxis type="number" tick={axisTick} tickFormatter={(v) => `${v.toFixed(0)}%`} axisLine={false} />
-                            <YAxis dataKey="name" type="category" width={160} tick={axisTick} tickFormatter={truncateLabel} />
-                            <RechartsTooltip contentStyle={tooltipStyle.contentStyle} wrapperStyle={tooltipStyle.wrapperStyle} formatter={(v: unknown) => (!Number.isFinite(Number(v)) ? '—' : `${Number(v).toFixed(1)}%`)} />
-                            <Legend wrapperStyle={legendStyle.wrapperStyle} iconSize={legendStyle.iconSize} />
-                            <Bar dataKey="leadToDeal" name="Лид→Сделка" fill={CHART_COLORS.deals} barSize={8} radius={[4, 4, 0, 0]} />
-                            <Bar dataKey="dealToPaid" name="Сделка→Оплата" fill={CHART_COLORS.paid} barSize={8} radius={[4, 4, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            </CollapsibleSection>
-
-            <CollapsibleSection
-              title="Источники: расходы и оплаченная выручка"
-              summary={`${rowsSortedByPaidRevenue.length} каналов`}
-              badge={<Badge variant="outline" className="text-xs">деньги</Badge>}
-              defaultOpen
-            >
-              <div className="space-y-5">
-                {rowsSortedByPaidRevenue.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Недостаточно данных.</p>
-                ) : (
-                  <>
-                    {(() => {
-                      const top = rowsSortedByPaidRevenue.slice(0, 6);
-                      const chartData = top.map((r) => ({
-                        name: channelNameById.get(r.channelCampaignExternalId) ?? r.channelCampaignExternalId,
-                        marketingSpend: r.marketingSpend,
-                        paidRevenue: r.paidRevenue,
-                      }));
-                      const maxPaid = Math.max(1, ...top.map((r) => r.paidRevenue));
-
-                      return (
-                        <>
-                          <div>
-                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Расходы vs оплата</p>
-                            <div className="h-[210px]">
-                              <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={chartData} layout="vertical" margin={CHART_MARGIN}>
-                                  <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridStroke} vertical={false} />
-                                  <XAxis type="number" tick={axisTick} tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} axisLine={false} />
-                                  <YAxis dataKey="name" type="category" width={160} tick={axisTick} tickFormatter={truncateLabel} />
-                                  <RechartsTooltip contentStyle={tooltipStyle.contentStyle} wrapperStyle={tooltipStyle.wrapperStyle} formatter={(v: unknown) => (!Number.isFinite(Number(v)) ? '—' : formatKZT(Number(v)))} />
-                                  <Legend wrapperStyle={legendStyle.wrapperStyle} iconSize={legendStyle.iconSize} />
-                                  <Bar dataKey="marketingSpend" name="Расходы" fill={CHART_COLORS.spend} barSize={8} radius={[4, 4, 0, 0]} />
-                                  <Bar dataKey="paidRevenue" name="Оплачено" fill={CHART_COLORS.paid} barSize={8} radius={[4, 4, 0, 0]} />
-                                </BarChart>
-                              </ResponsiveContainer>
-                            </div>
-                          </div>
-
-                          <div className="border-t border-border/40 pt-4">
-                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Оплаченная выручка</p>
-                            <div className="space-y-3">
-                              {top.map((r) => (
-                                <RankedListItem
-                                  key={r.channelCampaignExternalId}
-                                  label={channelNameById.get(r.channelCampaignExternalId) ?? r.channelCampaignExternalId}
-                                  value={moneyOrDash(r.paidRevenue)}
-                                  progressPct={Math.round((r.paidRevenue / maxPaid) * 100)}
-                                  barColor="emerald"
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </>
-                )}
-              </div>
-            </CollapsibleSection>
-
-            <CollapsibleSection
-              title="Лучшее и худшее в источниках"
-              summary="Кто даёт деньги, кто буксует"
-              badge={analytics.overdueAmount.value > 0 ? (
-                <Badge variant="outline" className="text-xs text-rose-600 dark:text-rose-400 border-rose-300/60 dark:border-rose-800/40">
-                  просрочка: {moneyOrDash(analytics.overdueAmount.value)}
-                </Badge>
-              ) : undefined}
-              defaultOpen={false}
-            >
-              <div className="space-y-4">
-                {/* Best by revenue */}
-                <div className="rct-card-inset p-4">
-                  <div className="flex items-start justify-between gap-3 mb-3">
-                    <div>
-                      <p className="text-sm font-semibold text-foreground flex items-center gap-2">
-                        <TrendingUp className="h-3.5 w-3.5 text-teal-500 dark:text-teal-400" />
-                        Лучшие по оплате
-                      </p>
-                    </div>
-                    <Badge variant="secondary" className="border-teal-200/60 dark:border-teal-800/40 text-teal-700 dark:text-teal-400 bg-teal-50/50 dark:bg-teal-950/20 hover:bg-teal-50/50 dark:hover:bg-teal-950/20">
-                      топ
-                    </Badge>
-                  </div>
-                  {(() => {
-                    const byId = new Map(rows.map((r) => [r.channelCampaignExternalId, r]));
-                    const ids = analytics.bestWorstChannelsSummary.bestByPaidRevenue.slice(0, 3);
-                    const top = ids.map((id) => byId.get(id)).filter(Boolean) as typeof rows;
-                    const max = Math.max(1, ...top.map((r) => r.paidRevenue));
-
-                    if (!top.length) return <p className="text-sm text-muted-foreground">Нет данных.</p>;
-
-                    return (
-                      <div className="space-y-2">
-                        {top.map((r) => (
-                          <RankedListItem
-                            key={r.channelCampaignExternalId}
-                            label={channelNameById.get(r.channelCampaignExternalId) ?? r.channelCampaignExternalId}
-                            value={moneyOrDash(r.paidRevenue)}
-                            progressPct={Math.round((r.paidRevenue / max) * 100)}
-                            barColor="emerald"
-                          />
-                        ))}
-                      </div>
-                    );
-                  })()}
-                </div>
-
-                {/* Worst by conversion */}
-                <div className="rct-card-inset p-4">
-                  <div className="flex items-start justify-between gap-3 mb-3">
-                    <div>
-                      <p className="text-sm font-semibold text-foreground flex items-center gap-2">
-                        <TrendingDown className="h-3.5 w-3.5 text-rose-500 dark:text-rose-400" />
-                        Слабые по конверсиям
-                      </p>
-                    </div>
-                    <Badge variant="secondary" className="border-rose-200/50 dark:border-rose-800/30 text-rose-600 dark:text-rose-400 bg-rose-50/40 dark:bg-rose-950/15 hover:bg-rose-50/40 dark:hover:bg-rose-950/15">
-                      внимание
-                    </Badge>
-                  </div>
-                  {(() => {
-                    const byId = new Map(rows.map((r) => [r.channelCampaignExternalId, r]));
-                    const ids = Array.from(
-                      new Set([
-                        ...analytics.bestWorstChannelsSummary.worstByLeadToDealConversion.slice(0, 2),
-                        ...analytics.bestWorstChannelsSummary.worstByDealToPaidConversion.slice(0, 2),
-                      ])
-                    ).slice(0, 3);
-                    const top = ids.map((id) => byId.get(id)).filter(Boolean) as typeof rows;
-
-                    if (!top.length) return <p className="text-sm text-muted-foreground">Нет данных.</p>;
-
-                    return (
-                      <div className="space-y-2">
-                        {top.map((r) => {
-                          const worstMetric = Math.min(r.leadToDealConversion, r.dealToPaidConversion);
-                          return (
-                            <div key={r.channelCampaignExternalId} className="flex items-center justify-between gap-3 py-1.5">
-                              <p className="text-xs font-medium text-foreground truncate max-w-[200px]">
-                                {channelNameById.get(r.channelCampaignExternalId) ?? r.channelCampaignExternalId}
-                              </p>
-                              <Badge variant="outline" className="text-xs text-rose-600 dark:text-rose-400 border-rose-300/60 dark:border-rose-800/40">
-                                {percentFromRatio(worstMetric)}
-                              </Badge>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
-                </div>
-
-                {/* Why it matters */}
-                <div className="rct-card-inset p-4">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-                    <p className="text-xs text-muted-foreground">
-                      Слабый по конверсиям канал = деньги не доходят до оплаты. Канал с просрочкой = приток под угрозой.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </CollapsibleSection>
-          </div>
         </>
       )}
     </div>

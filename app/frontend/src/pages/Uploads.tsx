@@ -1,8 +1,9 @@
 // ============================================================
-// BizPulse KZ — Upload Center Page
+// BizPulse KZ — Smart Upload Center
+// Auto-detect, auto-map, mapping confirmation UI
 // ============================================================
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -13,7 +14,7 @@ import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 import {
   Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle,
-  FileText, Eye, ArrowRight,
+  FileText, Eye, ArrowRight, ArrowDown, Zap, Settings2,
 } from 'lucide-react';
 import {
   getSession,
@@ -28,8 +29,13 @@ import {
   addPayments,
   addUpload,
   getUploads,
+  addContentMetrics,
 } from '@/lib/store';
-import { parseFile, parseFileAuto } from '@/lib/parsers';
+import { parseFile, parseFromRows } from '@/lib/parsers';
+import { detectAndMap, mapWithPreset, getTargetFieldsForType } from '@/lib/import';
+import { applyColumnMappings } from '@/lib/import/pipeline';
+import type { ColumnMapping, DetectionResult } from '@/lib/import/pipeline';
+import { smartMapColumns } from '@/lib/columnMapper';
 import type {
   FileType,
   ValidationError,
@@ -43,14 +49,18 @@ import type {
   ParsedPaymentRow,
   ParsedChannelCampaignRow,
   ParsedManagerRow,
+  ParsedContentMetricRow,
 } from '@/lib/types';
+import * as XLSX from 'xlsx';
+import Papa from 'papaparse';
+import { cn } from '@/lib/utils';
 
 const EMPTY_URL = 'https://mgx-backend-cdn.metadl.com/generate/images/977836/2026-02-19/564e0562-0b93-4cbb-9ae9-7398783510cc.png';
 
 const FILE_TYPE_CONFIG: Record<FileType | 'auto', { label: string; description: string; columns: string[] }> = {
   auto: {
     label: 'Автоопределение',
-    description: 'Система сама определит структуру файла',
+    description: 'Система определит тип и сопоставит колонки',
     columns: [],
   },
   transactions: {
@@ -65,33 +75,23 @@ const FILE_TYPE_CONFIG: Record<FileType | 'auto', { label: string; description: 
   },
   invoices: {
     label: 'Счета',
-    description: 'Счета для расчёта дебиторки и LTV',
+    description: 'Счета для дебиторки и LTV',
     columns: ['invoiceDate', 'customerExternalId', 'amount', 'status', 'paidDate', 'dueDate', 'dealExternalId', 'invoiceExternalId'],
   },
   marketing_spend: {
     label: 'Маркетинг расходы',
-    description: 'Расходы на маркетинг для расчёта CAC',
+    description: 'Расходы для CAC',
     columns: ['month', 'amount', 'channelCampaignExternalId'],
   },
   leads: {
     label: 'Лиды',
-    description: 'Вход в воронку: откуда пришли потенциальные клиенты',
+    description: 'Вход в воронку',
     columns: ['leadExternalId', 'name', 'channelCampaignExternalId', 'managerExternalId', 'createdDate', 'status'],
   },
   deals: {
     label: 'Сделки',
-    description: 'Коммерческие сделки и их статус',
-    columns: [
-      'dealExternalId',
-      'leadExternalId',
-      'customerExternalId',
-      'managerExternalId',
-      'createdDate',
-      'expectedCloseDate',
-      'lastActivityDate',
-      'status',
-      'wonDate',
-    ],
+    description: 'Коммерческие сделки',
+    columns: ['dealExternalId', 'leadExternalId', 'customerExternalId', 'managerExternalId', 'createdDate', 'expectedCloseDate', 'lastActivityDate', 'status', 'wonDate'],
   },
   payments: {
     label: 'Оплаты',
@@ -100,15 +100,49 @@ const FILE_TYPE_CONFIG: Record<FileType | 'auto', { label: string; description: 
   },
   channels_campaigns: {
     label: 'Каналы / кампании',
-    description: 'Источники маркетинга (объединено для MVP)',
+    description: 'Источники маркетинга',
     columns: ['channelCampaignExternalId', 'name', 'channelName', 'campaignName'],
   },
   managers: {
     label: 'Менеджеры',
-    description: 'Ответственные за лиды и сделки',
+    description: 'Ответственные за сделки',
     columns: ['managerExternalId', 'name'],
   },
+  content_metrics: {
+    label: 'Контент / органика',
+    description: 'Публикации и метрики из соцсетей',
+    columns: ['contentId', 'platform', 'contentTitle', 'publishedAt', 'impressions', 'reach', 'likes', 'comments', 'leadsGenerated', 'paidConversions'],
+  },
 };
+
+// Read file to raw rows (duplicated for mapping step)
+async function fileToRawRows(file: File): Promise<Record<string, unknown>[]> {
+  const ext = file.name.split('.').pop()?.toLowerCase();
+
+  if (ext === 'csv') {
+    return new Promise((resolve, reject) => {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        dynamicTyping: true,
+        complete: (result) => resolve(result.data as Record<string, unknown>[]),
+        error: (err: Error) => reject(err),
+      });
+    });
+  }
+
+  if (ext === 'xlsx' || ext === 'xls') {
+    const buffer = await file.arrayBuffer();
+    const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+    const sheetName = wb.SheetNames[0];
+    const sheet = wb.Sheets[sheetName];
+    return XLSX.utils.sheet_to_json(sheet, { defval: '' });
+  }
+
+  throw new Error(`Неподдерживаемый формат: .${ext}`);
+}
+
+type UploadStep = 'select' | 'mapping' | 'preview' | 'done';
 
 export default function UploadsPage() {
   const navigate = useNavigate();
@@ -123,6 +157,14 @@ export default function UploadsPage() {
   const [warnings, setWarnings] = useState<ValidationWarning[]>([]);
   const [result, setResult] = useState<{ success: number; total: number; errors: number } | null>(null);
   const [autoDetectedType, setAutoDetectedType] = useState<FileType | null>(null);
+
+  // Smart mapping state
+  const [step, setStep] = useState<UploadStep>('select');
+  const [detectionResult, setDetectionResult] = useState<DetectionResult | null>(null);
+  const [parsedResult, setParsedResult] = useState<Awaited<ReturnType<typeof parseFromRows>> | null>(null);
+  const [editableMappings, setEditableMappings] = useState<ColumnMapping[]>([]);
+  const [rawRows, setRawRows] = useState<Record<string, unknown>[]>([]);
+  const [sourceColumns, setSourceColumns] = useState<string[]>([]);
 
   const uploads = getUploads(companyId);
 
@@ -142,51 +184,122 @@ export default function UploadsPage() {
     setWarnings([]);
     setResult(null);
     setAutoDetectedType(null);
+    setStep('select');
+    setDetectionResult(null);
+    setParsedResult(null);
   }, []);
 
-  const handlePreview = useCallback(async () => {
+  // Smart analyze: detectAndMap primary, smartMapColumns fallback
+  const handleSmartAnalyze = useCallback(async () => {
     if (!selectedFile) return;
     setProcessing(true);
     try {
-      const parsed = fileType === 'auto'
-        ? await parseFileAuto(selectedFile)
-        : await parseFile(selectedFile, fileType);
+      const rows = await fileToRawRows(selectedFile);
+      setRawRows(rows);
 
-      if ('detectedFileType' in parsed) {
-        setAutoDetectedType(parsed.detectedFileType as FileType);
+      if (rows.length === 0) {
+        toast.error('Файл пустой');
+        setProcessing(false);
+        return;
       }
-      setPreview(parsed.preview);
-      setErrors(parsed.errors);
-      setWarnings(parsed.warnings ?? []);
-      toast.success(`Распознано ${parsed.totalRows} строк, ошибок: ${parsed.errors.length}`);
+
+      const cols = Object.keys(rows[0]);
+      setSourceColumns(cols);
+
+      let detection: DetectionResult;
+      const primary = detectAndMap(cols);
+      if (primary.confidence >= 0.2 && primary.mappings.length > 0) {
+        detection = primary;
+      } else {
+        const fallback = smartMapColumns(cols);
+        detection = {
+          fileType: fallback.detectedType,
+          confidence: fallback.typeConfidence / 100,
+          mappings: fallback.mappings.map((m) => ({
+            sourceColumn: m.sourceColumn,
+            targetField: m.targetField,
+            confidence: m.confidence / 100,
+            isUserOverride: false,
+          })),
+          unmappedSourceColumns: fallback.unmappedSourceColumns,
+          unmappedTargetFields: fallback.unmappedTargetFields,
+        };
+      }
+
+      setDetectionResult(detection);
+      setEditableMappings([...detection.mappings]);
+      setAutoDetectedType(detection.fileType);
+      setStep('mapping');
+
+      const confPct = Math.round(detection.confidence * 100);
+      toast.success(`Определено как "${FILE_TYPE_CONFIG[detection.fileType].label}" (${detection.mappings.length} колонок · уверенность ${confPct}%)`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Ошибка парсинга файла');
+      toast.error(err instanceof Error ? err.message : 'Ошибка чтения файла');
     } finally {
       setProcessing(false);
     }
-  }, [selectedFile, fileType]);
+  }, [selectedFile]);
+
+  const updateMapping = useCallback((sourceColumn: string, newTarget: string) => {
+    setEditableMappings((prev) =>
+      prev.map((m) =>
+        m.sourceColumn === sourceColumn
+          ? { ...m, targetField: newTarget, isUserOverride: true }
+          : m
+      )
+    );
+  }, []);
+
+  const handleConfirmMapping = useCallback(async () => {
+    if (!detectionResult || !autoDetectedType) return;
+    setProcessing(true);
+    try {
+      const mappedRows = applyColumnMappings(rawRows, editableMappings);
+      const parsed = parseFromRows(mappedRows, autoDetectedType);
+
+      setParsedResult(parsed);
+      setPreview(mappedRows.slice(0, 20));
+      setErrors(parsed.errors);
+      setWarnings(parsed.warnings ?? []);
+      setStep('preview');
+
+      toast.success(`Распознано ${parsed.totalRows} строк, ошибок: ${parsed.errors.length}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Ошибка парсинга');
+    } finally {
+      setProcessing(false);
+    }
+  }, [detectionResult, autoDetectedType, rawRows, editableMappings]);
 
   const handleUpload = useCallback(async () => {
     if (!selectedFile || !companyId) return;
     setProcessing(true);
     try {
-      const parsed = fileType === 'auto'
-        ? await parseFileAuto(selectedFile)
-        : await parseFile(selectedFile, fileType);
-      const successRows = parsed.rows;
-      const resolvedFileType = ('detectedFileType' in parsed ? parsed.detectedFileType : fileType) as FileType;
+      let parsed: Awaited<ReturnType<typeof parseFromRows>>;
+      let resolvedFileType: FileType;
 
-      if ('detectedFileType' in parsed) {
-        setAutoDetectedType(parsed.detectedFileType as FileType);
+      if (step === 'preview' && parsedResult) {
+        parsed = parsedResult;
+        resolvedFileType = autoDetectedType ?? fileType as FileType;
+      } else {
+        resolvedFileType = fileType as FileType;
+        if (resolvedFileType === 'auto') {
+          toast.error('Укажите тип данных вручную или используйте «Анализировать» для автоопределения');
+          setProcessing(false);
+          return;
+        }
+        const fileParsed = await parseFile(selectedFile, resolvedFileType);
+        parsed = fileParsed;
       }
 
-      // Save to store based on file type
+      const successRows = parsed.rows;
+
       switch (resolvedFileType) {
         case 'transactions':
           addTransactions(companyId, successRows as ParsedTransactionRow[]);
           break;
         case 'customers':
-          addCustomers(companyId, (successRows as ParsedCustomerRow[]).map(c => ({
+          addCustomers(companyId, (successRows as ParsedCustomerRow[]).map((c) => ({
             ...c,
             customerExternalId: c.customerExternalId,
           })));
@@ -212,9 +325,11 @@ export default function UploadsPage() {
         case 'managers':
           addManagers(companyId, successRows as ParsedManagerRow[]);
           break;
+        case 'content_metrics':
+          addContentMetrics(companyId, successRows as ParsedContentMetricRow[]);
+          break;
       }
 
-      // Save upload record
       addUpload(companyId, {
         fileType: resolvedFileType,
         originalFileName: selectedFile.name,
@@ -233,6 +348,7 @@ export default function UploadsPage() {
       });
       setErrors(parsed.errors);
       setWarnings(parsed.warnings ?? []);
+      setStep('done');
 
       toast.success(`Загружено ${successRows.length} записей из ${parsed.totalRows}`);
     } catch (err) {
@@ -248,12 +364,23 @@ export default function UploadsPage() {
     setErrors([]);
     setResult(null);
     setAutoDetectedType(null);
+    setStep('select');
+    setMappingResult(null);
+    setEditableMappings([]);
+    setRawRows([]);
+    setSourceColumns([]);
   };
 
   if (!session) {
     navigate('/');
     return null;
   }
+
+  // Available target fields for the detected type
+  const targetFieldOptions = useMemo(() => {
+    if (!autoDetectedType) return [];
+    return FILE_TYPE_CONFIG[autoDetectedType]?.columns ?? [];
+  }, [autoDetectedType]);
 
   return (
     <AppLayout>
@@ -262,283 +389,405 @@ export default function UploadsPage() {
         <div>
           <h1 className="rct-page-title">Центр загрузок</h1>
           <p className="rct-body-micro mt-1">
-            Загружайте Excel/CSV файлы с данными для цепочки маркетинг → лиды → сделки → оплаты
+            Загрузите любую таблицу — система сама определит тип данных и сопоставит колонки
           </p>
         </div>
 
+        {/* Progress steps */}
+        <div className="flex items-center gap-2 text-sm">
+          {[
+            { key: 'select', label: '1. Файл' },
+            { key: 'mapping', label: '2. Маппинг' },
+            { key: 'preview', label: '3. Проверка' },
+            { key: 'done', label: '4. Готово' },
+          ].map((s, idx) => (
+            <div key={s.key} className="flex items-center gap-2">
+              {idx > 0 && <ArrowRight className="h-3 w-3 text-muted-foreground" />}
+              <Badge
+                variant={step === s.key ? 'default' : 'outline'}
+                className={cn(
+                  'text-xs',
+                  step === s.key && 'bg-primary text-primary-foreground',
+                )}
+              >
+                {s.label}
+              </Badge>
+            </div>
+          ))}
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Upload Form */}
+          {/* Main area */}
           <div className="lg:col-span-2 space-y-6">
-            <Card className="rct-card">
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Upload className="h-5 w-5 text-primary" />
-                  Загрузить файл
-                </CardTitle>
-                <CardDescription>Выберите тип данных и загрузите файл</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-5">
-                {/* File Type Selection */}
-                <div>
-                  <label className="text-sm font-medium text-foreground mb-2 block">Тип данных</label>
-                  <div className="grid grid-cols-2 gap-3">
-                    {(Object.keys(FILE_TYPE_CONFIG) as (FileType | 'auto')[]).map(ft => {
-                      const config = FILE_TYPE_CONFIG[ft];
-                      const isSelected = fileType === ft;
-                      return (
-                        <button
-                          key={ft}
-                          onClick={() => { setFileType(ft); resetForm(); }}
-                          className={`p-3 rounded-lg border text-left transition-all ${
-                            isSelected
-                              ? 'border-[#1E3A5F] bg-[#1E3A5F]/5 ring-1 ring-[#1E3A5F]'
-                              : 'border-slate-200 hover:border-slate-300'
-                          }`}
-                        >
-                          <p className={`text-sm font-medium ${isSelected ? 'text-primary' : 'text-foreground'}`}>
-                            {config.label}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-0.5">{config.description}</p>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
 
-                {/* Expected Columns */}
-                <div className="bg-slate-50 rounded-lg p-3">
-                  {fileType === 'auto' ? (
-                    <>
-                      <p className="text-xs font-medium text-muted-foreground mb-1">Режим автоопределения включен</p>
-                      <p className="text-xs text-muted-foreground">
-                        Система определит тип данных и сопоставит колонки автоматически.
-                      </p>
-                      {autoDetectedType && (
-                        <Badge variant="secondary" className="mt-2">
-                          Определено как: {FILE_TYPE_CONFIG[autoDetectedType].label}
-                        </Badge>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-xs font-medium text-muted-foreground mb-2">Ожидаемые колонки:</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {FILE_TYPE_CONFIG[fileType].columns.map(col => (
-                          <Badge key={col} variant="secondary" className="text-xs font-mono">
-                            {col}
-                          </Badge>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                {/* File Input */}
-                <div>
-                  <label
-                    htmlFor="file-input"
-                    className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:border-[#1E3A5F] hover:bg-[#1E3A5F]/5 transition-all"
-                  >
-                    {selectedFile ? (
-                      <div className="text-center">
-                        <FileSpreadsheet className="h-10 w-10 text-primary mx-auto mb-2" />
-                        <p className="text-sm font-medium text-foreground">{selectedFile.name}</p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {(selectedFile.size / 1024).toFixed(1)} KB
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="text-center">
-                        <Upload className="h-10 w-10 text-muted-foreground/60 mx-auto mb-2" />
-                        <p className="text-sm text-muted-foreground">Нажмите для выбора файла</p>
-                        <p className="text-xs text-muted-foreground/60 mt-1">.xlsx, .xls, .csv</p>
-                      </div>
-                    )}
-                    <input
-                      id="file-input"
-                      type="file"
-                      accept=".xlsx,.xls,.csv"
-                      className="hidden"
-                      onChange={handleFileSelect}
-                    />
-                  </label>
-                </div>
-
-                {/* Actions */}
-                {selectedFile && !result && (
-                  <div className="flex gap-3">
-                    <Button
-                      variant="outline"
-                      onClick={handlePreview}
-                      disabled={processing}
-                    >
-                      <Eye className="h-4 w-4 mr-2" />
-                      Предпросмотр
-                    </Button>
-                    <Button
-                      onClick={handleUpload}
-                      disabled={processing}
-                      className="bg-[#1E3A5F] hover:bg-[#1E3A5F]/90"
-                    >
-                      {processing ? 'Обработка...' : 'Загрузить'}
-                    </Button>
-                  </div>
-                )}
-
-                {/* Processing */}
-                {processing && (
-                  <div className="space-y-2">
-                    <Progress value={66} className="h-2" />
-                    <p className="text-xs text-muted-foreground">Обработка файла...</p>
-                  </div>
-                )}
-
-                {/* Result */}
-                {result && (
-                  <div className="rct-card p-5 border-teal-200/50 dark:border-teal-800/30 bg-teal-50/30 dark:bg-teal-950/15">
-                    <div className="flex items-center gap-2 mb-4">
-                      <CheckCircle2 className="h-5 w-5 text-teal-600 dark:text-teal-400" />
-                      <p className="rct-subsection-title text-teal-700 dark:text-teal-300">Загрузка завершена</p>
-                    </div>
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="rct-stat-box-slate">
-                        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Всего строк</div>
-                        <div className="text-xl font-bold text-foreground mt-2 tracking-tight">{result.total}</div>
-                      </div>
-                      <div className="rct-stat-box-emerald">
-                        <div className="text-xs font-medium text-teal-700 dark:text-teal-300 uppercase tracking-wide">Успешно</div>
-                        <div className="text-xl font-bold text-teal-800 dark:text-teal-200 mt-2 tracking-tight">{result.success}</div>
-                      </div>
-                      <div className={result.errors > 0 ? 'rct-stat-box-amber' : 'rct-stat-box-slate'}>
-                        <div className="text-xs font-medium uppercase tracking-wide">{result.errors > 0 ? 'Ошибок' : 'Ошибок'}</div>
-                        <div className="text-xl font-bold mt-2 tracking-tight">{result.errors}</div>
-                      </div>
-                    </div>
-                    <div className="flex gap-3 mt-4">
-                      <Button variant="outline" size="sm" onClick={resetForm}>
-                        Загрузить ещё
-                      </Button>
-                      <Button
-                        size="sm"
-                        className="bg-[#1E3A5F] hover:bg-[#1E3A5F]/90"
-                        onClick={() => navigate('/dashboard')}
-                      >
-                        К дашборду
-                        <ArrowRight className="h-4 w-4 ml-2" />
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Preview Table */}
-            {preview && preview.length > 0 && (
+            {/* Step 1: File selection */}
+            {step === 'select' && (
               <Card className="rct-card">
-                <CardHeader className="rct-card-padding pb-3">
-                  <CardTitle className="rct-section-title flex items-center gap-2">
-                    <Eye className="h-4 w-4 text-muted-foreground/60" />
-                    Предпросмотр
-                    <Badge variant="secondary" className="ml-auto text-xs">{preview.length} строк</Badge>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Upload className="h-5 w-5 text-primary" />
+                    Загрузить файл
                   </CardTitle>
+                  <CardDescription>Выберите режим и загрузите файл</CardDescription>
                 </CardHeader>
-                <CardContent className="rct-card-padding pt-0">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
+                <CardContent className="space-y-5">
+                  {/* Mode: Auto vs Manual */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      onClick={() => setFileType('auto')}
+                      className={cn(
+                        'p-4 rounded-lg border text-left transition-all',
+                        fileType === 'auto'
+                          ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                          : 'border-border hover:border-muted-foreground/30',
+                      )}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <Zap className="h-4 w-4 text-primary" />
+                        <span className="text-sm font-medium text-foreground">Умная загрузка</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">Автоопределение типа и маппинг колонок</p>
+                    </button>
+                    <button
+                      onClick={() => setFileType(fileType === 'auto' ? 'transactions' : fileType)}
+                      className={cn(
+                        'p-4 rounded-lg border text-left transition-all',
+                        fileType !== 'auto'
+                          ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                          : 'border-border hover:border-muted-foreground/30',
+                      )}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <Settings2 className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-medium text-foreground">Ручной выбор</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">Укажите тип данных сами</p>
+                    </button>
+                  </div>
+
+                  {/* Manual type selector */}
+                  {fileType !== 'auto' && (
+                    <div>
+                      <label className="text-sm font-medium text-foreground mb-2 block">Тип данных</label>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {(Object.keys(FILE_TYPE_CONFIG) as (FileType | 'auto')[]).filter(ft => ft !== 'auto').map(ft => {
+                          const config = FILE_TYPE_CONFIG[ft];
+                          const isSelected = fileType === ft;
+                          return (
+                            <button
+                              key={ft}
+                              onClick={() => setFileType(ft)}
+                              className={cn(
+                                'p-2.5 rounded-lg border text-left transition-all text-xs',
+                                isSelected
+                                  ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                                  : 'border-border hover:border-muted-foreground/30',
+                              )}
+                            >
+                              <p className={cn('font-medium', isSelected ? 'text-primary' : 'text-foreground')}>{config.label}</p>
+                              <p className="text-muted-foreground mt-0.5 text-[10px]">{config.description}</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* File Input */}
+                  <div>
+                    <label
+                      htmlFor="file-input"
+                      className="flex flex-col items-center justify-center w-full h-36 border-2 border-dashed border-muted-foreground/20 rounded-xl cursor-pointer hover:border-primary hover:bg-primary/5 transition-all"
+                    >
+                      {selectedFile ? (
+                        <div className="text-center">
+                          <FileSpreadsheet className="h-8 w-8 text-primary mx-auto mb-2" />
+                          <p className="text-sm font-medium text-foreground">{selectedFile.name}</p>
+                          <p className="text-xs text-muted-foreground mt-1">{(selectedFile.size / 1024).toFixed(1)} KB</p>
+                        </div>
+                      ) : (
+                        <div className="text-center">
+                          <Upload className="h-8 w-8 text-muted-foreground/40 mx-auto mb-2" />
+                          <p className="text-sm text-muted-foreground">Нажмите для выбора</p>
+                          <p className="text-xs text-muted-foreground/60 mt-1">.xlsx, .xls, .csv</p>
+                        </div>
+                      )}
+                      <input
+                        id="file-input"
+                        type="file"
+                        accept=".xlsx,.xls,.csv"
+                        className="hidden"
+                        onChange={handleFileSelect}
+                      />
+                    </label>
+                  </div>
+
+                  {/* Actions */}
+                  {selectedFile && (
+                    <div className="flex gap-3">
+                      {fileType === 'auto' ? (
+                        <Button onClick={handleSmartAnalyze} disabled={processing} className="bg-primary hover:bg-primary/90">
+                          <Zap className="h-4 w-4 mr-2" />
+                          {processing ? 'Анализ...' : 'Анализировать'}
+                        </Button>
+                      ) : (
+                        <Button onClick={handleUpload} disabled={processing} className="bg-primary hover:bg-primary/90">
+                          {processing ? 'Обработка...' : 'Загрузить'}
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {processing && (
+                    <div className="space-y-2">
+                      <Progress value={66} className="h-2" />
+                      <p className="text-xs text-muted-foreground">Обработка файла...</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Step 2: Mapping Confirmation */}
+            {step === 'mapping' && detectionResult && (
+              <Card className="rct-card">
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Settings2 className="h-5 w-5 text-primary" />
+                    Маппинг колонок
+                  </CardTitle>
+                  <CardDescription>
+                    Определено как: <Badge variant="secondary" className="ml-1">{FILE_TYPE_CONFIG[detectionResult.fileType].label}</Badge>
+                    {' '}— проверьте соответствие колонок
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  {/* Mapping table */}
+                  <div className="rounded-lg border overflow-hidden">
+                    <table className="w-full text-sm">
                       <thead>
-                        <tr className="border-b border-slate-200 bg-slate-50">
-                          {Object.keys(preview[0]).map(key => (
-                            <th key={key} className="text-left px-3 py-2 font-medium text-muted-foreground">
-                              {key}
-                            </th>
-                          ))}
+                        <tr className="bg-muted/30 border-b">
+                          <th className="text-left px-4 py-2.5 font-medium text-muted-foreground text-xs">Колонка в файле</th>
+                          <th className="text-center px-2 py-2.5 font-medium text-muted-foreground text-xs w-10">→</th>
+                          <th className="text-left px-4 py-2.5 font-medium text-muted-foreground text-xs">Поле в системе</th>
+                          <th className="text-right px-4 py-2.5 font-medium text-muted-foreground text-xs">Уверенность</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {preview.map((row, idx) => (
-                          <tr key={idx} className="border-b border-slate-50 hover:bg-slate-50/50">
-                            {Object.values(row).map((val, vIdx) => (
-                              <td key={vIdx} className="px-3 py-2 text-muted-foreground truncate max-w-[150px]">
-                                {val === null || val === undefined ? '—' : String(val)}
-                              </td>
-                            ))}
+                        {editableMappings.map((m) => (
+                          <tr key={m.sourceColumn} className="border-b border-border/30 hover:bg-muted/10">
+                            <td className="px-4 py-2.5">
+                              <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{m.sourceColumn}</span>
+                            </td>
+                            <td className="px-2 py-2.5 text-center">
+                              <ArrowRight className="h-3.5 w-3.5 text-primary mx-auto" />
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <Select
+                                value={m.targetField}
+                                onValueChange={(v) => updateMapping(m.sourceColumn, v)}
+                              >
+                                <SelectTrigger className="h-8 text-xs w-[200px]">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {targetFieldOptions.map((f) => (
+                                    <SelectItem key={f} value={f} className="text-xs">
+                                      {f}
+                                    </SelectItem>
+                                  ))}
+                                  <SelectItem value="_skip" className="text-xs text-muted-foreground">
+                                    (пропустить)
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </td>
+                            <td className="px-4 py-2.5 text-right">
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  'text-[10px]',
+                                  m.confidence >= 0.9 && 'text-teal-600 dark:text-teal-400 border-teal-300/60',
+                                  m.confidence >= 0.6 && m.confidence < 0.9 && 'text-amber-600 dark:text-amber-400 border-amber-300/60',
+                                  m.confidence < 0.6 && 'text-rose-600 dark:text-rose-400 border-rose-300/60',
+                                )}
+                              >
+                                {Math.round(m.confidence * 100)}%
+                              </Badge>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
-                </CardContent>
-              </Card>
-            )}
 
-            {/* Validation Errors */}
-            {errors.length > 0 && (
-              <Card className="rct-card border-l-[3px] border-l-rose-400/70">
-                <CardHeader className="rct-card-padding pb-3">
-                  <CardTitle className="rct-section-title text-red-700 flex items-center gap-2">
-                    <XCircle className="h-4 w-4" />
-                    Ошибки валидации
-                    <Badge variant="outline" className="ml-auto text-red-600 border-red-300 text-xs">{errors.length}</Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="rct-card-padding pt-0">
-                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                    {errors.slice(0, 50).map((err, idx) => (
-                      <div key={idx} className="flex items-start gap-2 text-sm">
-                        <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 shrink-0 mt-0.5" />
-                        <span className="text-muted-foreground">
-                          <span className="font-medium">Строка {err.row}</span>, поле{' '}
-                          <span className="font-mono text-xs bg-slate-100 px-1 rounded">{err.field}</span>:{' '}
-                          {err.message}
-                        </span>
+                  {/* Unmapped columns */}
+                  {detectionResult.unmappedSourceColumns.length > 0 && (
+                    <div className="rct-card-inset p-3">
+                      <p className="text-xs font-medium text-muted-foreground mb-2">Не сопоставлены (будут пропущены):</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {detectionResult.unmappedSourceColumns.map((c) => (
+                          <Badge key={c} variant="outline" className="text-[10px] font-mono">{c}</Badge>
+                        ))}
                       </div>
-                    ))}
-                    {errors.length > 50 && (
-                      <p className="text-xs text-muted-foreground/60 mt-2">
-                        ...и ещё {errors.length - 50} ошибок
-                      </p>
-                    )}
+                    </div>
+                  )}
+
+                  {/* Sample data */}
+                  {rawRows.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-2">Первые строки файла:</p>
+                      <div className="overflow-x-auto max-h-[200px] border rounded-lg">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b bg-muted/30 sticky top-0">
+                              {sourceColumns.map((col) => (
+                                <th key={col} className="text-left px-3 py-1.5 font-medium text-muted-foreground whitespace-nowrap">{col}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rawRows.slice(0, 5).map((row, idx) => (
+                              <tr key={idx} className="border-b border-border/20">
+                                {sourceColumns.map((col) => (
+                                  <td key={col} className="px-3 py-1.5 text-muted-foreground truncate max-w-[120px]">
+                                    {row[col] === null || row[col] === undefined ? '—' : String(row[col])}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex gap-3">
+                    <Button variant="outline" onClick={() => setStep('select')}>Назад</Button>
+                    <Button onClick={handleConfirmMapping} disabled={processing} className="bg-primary hover:bg-primary/90">
+                      {processing ? 'Проверка...' : 'Подтвердить маппинг'}
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
             )}
 
-            {/* Validation Warnings */}
-            {warnings.length > 0 && (
+            {/* Step 3: Preview + Upload */}
+            {step === 'preview' && (
               <Card className="rct-card">
-                <CardHeader className="rct-card-padding pb-3">
-                  <CardTitle className="rct-section-title text-yellow-700 dark:text-yellow-400 flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4" />
-                    Предупреждения
-                    <Badge variant="outline" className="ml-auto text-yellow-700 dark:text-yellow-400 border-yellow-300/60 dark:border-yellow-800/40 text-xs">{warnings.length}</Badge>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Eye className="h-5 w-5 text-primary" />
+                    Предпросмотр и загрузка
                   </CardTitle>
+                  <CardDescription>
+                    Тип: <Badge variant="secondary" className="ml-1">{FILE_TYPE_CONFIG[autoDetectedType ?? 'auto'].label}</Badge>
+                    {' '}· {rawRows.length} строк
+                  </CardDescription>
                 </CardHeader>
-                <CardContent className="rct-card-padding pt-0">
-                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                    {warnings.slice(0, 50).map((warn, idx) => (
-                      <div key={idx} className="flex items-start gap-2 text-sm">
-                        <span className="mt-0.5 h-4 w-4 inline-flex items-center justify-center text-xs rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400 shrink-0">
-                          !
-                        </span>
-                        <span className="text-muted-foreground">
-                          <span className="font-medium">Строка {warn.row}</span>, поле{' '}
-                          <span className="font-mono text-xs bg-slate-100 px-1 rounded">{warn.field}</span>:{' '}
-                          {warn.message}
-                        </span>
-                      </div>
-                    ))}
-                    {warnings.length > 50 && (
-                      <p className="text-xs text-yellow-700 dark:text-yellow-400/60 mt-2">
-                        ...и ещё {warnings.length - 50} предупреждений
+                <CardContent className="space-y-4">
+                  {preview && preview.length > 0 && (
+                    <div className="overflow-x-auto max-h-[250px] border rounded-lg">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b bg-muted/30 sticky top-0">
+                            {Object.keys(preview[0]).slice(0, 8).map(key => (
+                              <th key={key} className="text-left px-3 py-1.5 font-medium text-muted-foreground whitespace-nowrap">{key}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {preview.slice(0, 10).map((row, idx) => (
+                            <tr key={idx} className="border-b border-border/20">
+                              {Object.keys(preview[0]).slice(0, 8).map((key) => (
+                                <td key={key} className="px-3 py-1.5 text-muted-foreground truncate max-w-[120px]">
+                                  {row[key] === null || row[key] === undefined ? '—' : String(row[key])}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {errors.length > 0 && (
+                    <div className="rct-card-inset p-3 border-l-[3px] border-l-rose-400/70">
+                      <p className="text-xs font-semibold text-rose-600 dark:text-rose-400 mb-2 flex items-center gap-1">
+                        <XCircle className="h-3.5 w-3.5" />
+                        {errors.length} ошибок валидации
                       </p>
-                    )}
+                      <div className="space-y-1 max-h-[120px] overflow-y-auto">
+                        {errors.slice(0, 10).map((err, idx) => (
+                          <p key={idx} className="text-xs text-muted-foreground">
+                            Строка {err.row}, <span className="font-mono">{err.field}</span>: {err.message}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {warnings.length > 0 && (
+                    <div className="rct-card-inset p-3 border-l-[3px] border-l-amber-400/70">
+                      <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-2 flex items-center gap-1">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        {warnings.length} предупреждений
+                      </p>
+                      <div className="space-y-1 max-h-[80px] overflow-y-auto">
+                        {warnings.slice(0, 5).map((w, idx) => (
+                          <p key={idx} className="text-xs text-muted-foreground">
+                            Строка {w.row}, <span className="font-mono">{w.field}</span>: {w.message}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex gap-3">
+                    <Button variant="outline" onClick={() => setStep('mapping')}>Назад к маппингу</Button>
+                    <Button onClick={handleUpload} disabled={processing} className="bg-primary hover:bg-primary/90">
+                      {processing ? 'Загрузка...' : 'Загрузить данные'}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Step 4: Result */}
+            {step === 'done' && result && (
+              <Card className="rct-card border-teal-200/50 dark:border-teal-800/30">
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-2 mb-5">
+                    <CheckCircle2 className="h-6 w-6 text-teal-600 dark:text-teal-400" />
+                    <p className="text-lg font-semibold text-teal-700 dark:text-teal-300">Загрузка завершена</p>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4 mb-5">
+                    <div className="rct-stat-box-slate">
+                      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Всего</div>
+                      <div className="text-2xl font-bold text-foreground mt-2">{result.total}</div>
+                    </div>
+                    <div className="rct-stat-box-emerald">
+                      <div className="text-xs font-medium text-teal-700 dark:text-teal-300 uppercase tracking-wide">Успешно</div>
+                      <div className="text-2xl font-bold text-teal-800 dark:text-teal-200 mt-2">{result.success}</div>
+                    </div>
+                    <div className={result.errors > 0 ? 'rct-stat-box-amber' : 'rct-stat-box-slate'}>
+                      <div className="text-xs font-medium uppercase tracking-wide">Ошибок</div>
+                      <div className="text-2xl font-bold mt-2">{result.errors}</div>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <Button variant="outline" onClick={resetForm}>Загрузить ещё</Button>
+                    <Button onClick={() => navigate('/dashboard')} className="bg-primary hover:bg-primary/90">
+                      К дашборду
+                      <ArrowRight className="h-4 w-4 ml-2" />
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
             )}
           </div>
 
-          {/* Upload History */}
+          {/* Right sidebar: History */}
           <div className="space-y-6">
             <Card className="rct-card">
               <CardHeader>
@@ -546,8 +795,8 @@ export default function UploadsPage() {
               </CardHeader>
               <CardContent>
                 {uploads.length === 0 ? (
-                  <div className="text-center py-8">
-                    <img src={EMPTY_URL} alt="" className="h-20 w-20 mx-auto mb-3 opacity-70" />
+                  <div className="text-center py-6">
+                    <img src={EMPTY_URL} alt="" className="h-16 w-16 mx-auto mb-3 opacity-70" />
                     <p className="text-sm text-muted-foreground">Нет загрузок</p>
                   </div>
                 ) : (
@@ -556,7 +805,7 @@ export default function UploadsPage() {
                       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
                       .slice(0, 10)
                       .map(upload => (
-                        <div key={upload.id} className="border border-slate-100 rounded-lg p-3">
+                        <div key={upload.id} className="border border-border/50 rounded-lg p-3">
                           <div className="flex items-start justify-between mb-1">
                             <div className="flex items-center gap-2">
                               <FileText className="h-4 w-4 text-muted-foreground/60" />
@@ -568,17 +817,17 @@ export default function UploadsPage() {
                               variant="outline"
                               className={
                                 upload.status === 'completed'
-                                  ? 'text-teal-600 dark:text-teal-400 border-teal-300/60 dark:border-teal-800/40'
+                                  ? 'text-teal-600 dark:text-teal-400 border-teal-300/60'
                                   : 'text-red-600 border-red-300'
                               }
                             >
                               {upload.status === 'completed' ? 'OK' : 'Ошибка'}
                             </Badge>
                           </div>
-                          <p className="text-xs text-muted-foreground/60">
-                            {FILE_TYPE_CONFIG[upload.fileType]?.label} · {upload.successRows}/{upload.totalRows} строк
+                          <p className="text-xs text-muted-foreground">
+                            {FILE_TYPE_CONFIG[upload.fileType]?.label} · {upload.successRows}/{upload.totalRows}
                           </p>
-                          <p className="text-xs text-muted-foreground/60">
+                          <p className="text-xs text-muted-foreground">
                             {new Date(upload.createdAt).toLocaleDateString('ru-KZ')}
                           </p>
                         </div>
@@ -588,49 +837,35 @@ export default function UploadsPage() {
               </CardContent>
             </Card>
 
-            {/* Template Info */}
+            {/* Quick help */}
             <Card className="rct-card">
               <CardHeader>
-                <CardTitle className="text-base">📋 Шаблоны файлов</CardTitle>
+                <CardTitle className="text-base">Как это работает</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="text-xs text-muted-foreground space-y-2">
-                  <p className="font-medium text-foreground">transactions.xlsx:</p>
-                  <p className="font-mono bg-slate-50 p-2 rounded">
-                    date | amount | direction | category | counterparty | description
-                  </p>
-                  <p className="font-medium text-foreground mt-3">customers.xlsx:</p>
-                  <p className="font-mono bg-slate-50 p-2 rounded">
-                    customerExternalId | name | segment | startDate
-                  </p>
-                  <p className="font-medium text-foreground mt-3">invoices.xlsx:</p>
-                  <p className="font-mono bg-slate-50 p-2 rounded">
-                    invoiceDate | customerExternalId | amount | status | paidDate | dueDate | dealExternalId | invoiceExternalId
-                  </p>
-                  <p className="font-medium text-foreground mt-3">marketing_spend.xlsx:</p>
-                  <p className="font-mono bg-slate-50 p-2 rounded">
-                    month | amount | channelCampaignExternalId
-                  </p>
-                  <p className="font-medium text-foreground mt-3">channels_campaigns.xlsx:</p>
-                  <p className="font-mono bg-slate-50 p-2 rounded">
-                    channelCampaignExternalId | name | channelName | campaignName
-                  </p>
-                  <p className="font-medium text-foreground mt-3">leads.xlsx:</p>
-                  <p className="font-mono bg-slate-50 p-2 rounded">
-                    leadExternalId | name | channelCampaignExternalId | managerExternalId | createdDate | status
-                  </p>
-                  <p className="font-medium text-foreground mt-3">deals.xlsx:</p>
-                  <p className="font-mono bg-slate-50 p-2 rounded">
-                    dealExternalId | leadExternalId | customerExternalId | managerExternalId | createdDate | expectedCloseDate | lastActivityDate | status | wonDate
-                  </p>
-                  <p className="font-medium text-foreground mt-3">payments.xlsx:</p>
-                  <p className="font-mono bg-slate-50 p-2 rounded">
-                    invoiceExternalId | paymentDate | amount | paymentExternalId
-                  </p>
-                  <p className="font-medium text-foreground mt-3">managers.xlsx:</p>
-                  <p className="font-mono bg-slate-50 p-2 rounded">
-                    managerExternalId | name
-                  </p>
+                <div className="space-y-2 text-xs text-muted-foreground">
+                  <div className="flex items-start gap-2">
+                    <Badge variant="outline" className="text-[10px] shrink-0">1</Badge>
+                    <p>Загрузите любой Excel/CSV файл</p>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <Badge variant="outline" className="text-[10px] shrink-0">2</Badge>
+                    <p>Система автоматически определит тип данных</p>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <Badge variant="outline" className="text-[10px] shrink-0">3</Badge>
+                    <p>Проверьте и скорректируйте маппинг колонок</p>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <Badge variant="outline" className="text-[10px] shrink-0">4</Badge>
+                    <p>Подтвердите загрузку — данные появятся в дашборде</p>
+                  </div>
+                </div>
+                <div className="mt-3 p-2 bg-muted/30 rounded text-[10px] text-muted-foreground">
+                  <p className="font-medium text-foreground mb-1">Примеры маппинга:</p>
+                  <p>"Client Name" → customer_name</p>
+                  <p>"Amount" → revenue</p>
+                  <p>"Source" → marketing_channel</p>
                 </div>
               </CardContent>
             </Card>

@@ -9,6 +9,7 @@ import type {
   ChannelCampaign,
   Transaction,
 } from './types';
+import type { ContentMetric } from './analytics/domain';
 
 export interface DemoDataBundle {
   managers: Omit<Manager, 'id' | 'companyId'>[];
@@ -19,6 +20,7 @@ export interface DemoDataBundle {
   invoices: Omit<Invoice, 'id' | 'companyId'>[];
   payments: Omit<PaymentTransaction, 'id' | 'companyId'>[];
   marketingSpend: Omit<MarketingSpend, 'id' | 'companyId'>[];
+  contentMetrics?: Omit<ContentMetric, 'id' | 'companyId'>[];
   // Kept for backward compatibility with current dashboard + signals engine.
   transactions: Omit<Transaction, 'id' | 'companyId'>[];
 }
@@ -410,6 +412,11 @@ export function generateMvpDemoData(companyId: string): DemoDataBundle {
       lastActivityDate = addDays(createdAt, randInt(rng, 8, 55));
     }
 
+    const lostReasons: Array<'price' | 'no_response' | 'not_relevant' | 'competitor' | 'timing' | 'other'> = [
+      'price', 'no_response', 'not_relevant', 'competitor', 'timing', 'other',
+    ];
+    const lostStages = ['qualification', 'proposal', 'negotiation', 'closing'];
+
     deals.push({
       dealExternalId: `D${String(dealSeq).padStart(5, '0')}`,
       leadExternalId: lead.leadExternalId,
@@ -420,6 +427,11 @@ export function generateMvpDemoData(companyId: string): DemoDataBundle {
       lastActivityDate: lastActivityDate ? toISODate(lastActivityDate) : undefined,
       status,
       wonDate: wonDate ? toISODate(wonDate) : undefined,
+      ...(status === 'lost' ? {
+        lostReason: pick(rng, lostReasons),
+        lostDate: lastActivityDate ? toISODate(lastActivityDate) : toISODate(createdAt),
+        lostStage: pick(rng, lostStages),
+      } : {}),
       _createdAt: createdAt,
       _expectedCloseDate: expectedClose,
       _statusResolvedAt: lastActivityDate,
@@ -689,6 +701,73 @@ export function generateMvpDemoData(companyId: string): DemoDataBundle {
     return rest;
   });
 
+  // --- Generate demo content metrics (organic / social) ---
+  const contentMetrics: Omit<ContentMetric, 'id' | 'companyId'>[] = [];
+  const platforms: Array<'instagram' | 'facebook' | 'linkedin' | 'telegram'> = [
+    'instagram', 'facebook', 'linkedin', 'telegram',
+  ];
+  const contentTitles = [
+    'Кейс: как мы увеличили продажи на 40%',
+    'Топ-5 ошибок при построении воронки',
+    'Отзыв клиента: ТОО "Астана Строй"',
+    'Новый продукт: автоматизация отчётности',
+    'Как B2B компании теряют клиентов',
+    'Руководство по интеграции CRM',
+    'Вебинар: тренды 2025 в B2B продажах',
+    'Закулисье: как работает наша команда',
+    'Результаты Q3: рост на 25%',
+    'FAQ: частые вопросы о платформе',
+    'Сравнение: наш подход vs конкуренты',
+    'Инструкция: первые шаги в BizPulse',
+  ];
+
+  let contentCounter = 1;
+  for (let monthIdx = Math.max(0, monthDates.length - 6); monthIdx < monthDates.length; monthIdx++) {
+    const monthDate = monthDates[monthIdx];
+    const daysInMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate();
+
+    const postsThisMonth = randInt(rng, 6, 12);
+    for (let p = 0; p < postsThisMonth; p++) {
+      const platform = pick(rng, platforms);
+      const day = randInt(rng, 1, Math.max(1, daysInMonth));
+      const pubDate = new Date(monthDate.getFullYear(), monthDate.getMonth(), day);
+
+      const baseReach = platform === 'instagram' ? randInt(rng, 800, 5000)
+        : platform === 'linkedin' ? randInt(rng, 300, 2000)
+        : platform === 'telegram' ? randInt(rng, 200, 1500)
+        : randInt(rng, 500, 3000);
+
+      const impressions = Math.round(baseReach * (1.2 + rng() * 0.8));
+      const likes = Math.round(baseReach * (0.02 + rng() * 0.08));
+      const comments = Math.round(likes * (0.1 + rng() * 0.3));
+      const saves = Math.round(likes * (0.05 + rng() * 0.2));
+      const shares = Math.round(likes * (0.03 + rng() * 0.15));
+      const profileVisits = Math.round(baseReach * (0.01 + rng() * 0.05));
+      const inboundMessages = Math.round(profileVisits * (0.05 + rng() * 0.1));
+      const leadsGenerated = rng() > 0.6 ? randInt(rng, 0, 3) : 0;
+      const dealsGenerated = leadsGenerated > 0 && rng() > 0.7 ? 1 : 0;
+      const paidConversions = dealsGenerated > 0 && rng() > 0.8 ? 1 : 0;
+
+      contentMetrics.push({
+        platform,
+        contentId: `POST${String(contentCounter++).padStart(4, '0')}`,
+        contentTitle: pick(rng, contentTitles),
+        publishedAt: toISODate(pubDate),
+        impressions,
+        reach: baseReach,
+        profileVisits,
+        likes,
+        comments,
+        saves,
+        shares,
+        inboundMessages,
+        leadsGenerated,
+        dealsGenerated,
+        paidConversions,
+      });
+    }
+  }
+
   return {
     managers,
     channelCampaigns,
@@ -698,6 +777,7 @@ export function generateMvpDemoData(companyId: string): DemoDataBundle {
     invoices,
     payments,
     marketingSpend,
+    contentMetrics,
     transactions,
   };
 }

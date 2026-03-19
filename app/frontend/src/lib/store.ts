@@ -9,6 +9,7 @@ import type {
   DeadlineReminderLog, NotificationSettings,
   Lead, Deal, ChannelCampaign, Manager, PaymentTransaction,
 } from './types';
+import type { ContentMetric } from './analytics/domain';
 import { generateMvpDemoData } from './demoData';
 
 // --- Helpers ---
@@ -42,6 +43,7 @@ const KEYS = {
   channelCampaigns: 'bp_channels_campaigns',
   managers: 'bp_managers',
   payments: 'bp_payments',
+  contentMetrics: 'bp_content_metrics',
   documents: 'bp_documents',
   uploads: 'bp_uploads',
   signals: 'bp_signals',
@@ -322,6 +324,28 @@ export function addPayments(
 }
 
 // ============================================================
+// Content Metrics (organic / social)
+// ============================================================
+export function getContentMetrics(companyId: string): ContentMetric[] {
+  return getItem<ContentMetric>(KEYS.contentMetrics).filter((c) => c.companyId === companyId);
+}
+
+export function addContentMetrics(
+  companyId: string,
+  metrics: Omit<ContentMetric, 'id' | 'companyId'>[],
+): ContentMetric[] {
+  const all = getItem<ContentMetric>(KEYS.contentMetrics);
+  const newRows: ContentMetric[] = metrics.map((m) => ({
+    ...m,
+    id: generateId(),
+    companyId,
+  }));
+  all.push(...newRows);
+  setItem(KEYS.contentMetrics, all);
+  return newRows;
+}
+
+// ============================================================
 // Documents
 // ============================================================
 export function getDocuments(companyId: string): Document[] {
@@ -489,6 +513,11 @@ export function seedDemoData(companyId: string): void {
 
   // Marketing attribution seed
   addMarketingSpend(companyId, demo.marketingSpend);
+
+  // Organic / content metrics
+  if (demo.contentMetrics) {
+    addContentMetrics(companyId, demo.contentMetrics);
+  }
 
   // Backward-compatible finance transactions (income comes from demo payments)
   addTransactions(companyId, demo.transactions);

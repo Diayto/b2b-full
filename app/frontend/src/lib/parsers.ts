@@ -10,6 +10,7 @@ import type {
   ParsedInvoiceRow, ParsedMarketingSpendRow,
   ParsedLeadRow, ParsedDealRow, ParsedPaymentRow,
   ParsedChannelCampaignRow, ParsedManagerRow,
+  ParsedContentMetricRow,
 } from './types';
 
 export type ParsedRow =
@@ -21,7 +22,8 @@ export type ParsedRow =
   | ParsedDealRow
   | ParsedPaymentRow
   | ParsedChannelCampaignRow
-  | ParsedManagerRow;
+  | ParsedManagerRow
+  | ParsedContentMetricRow;
 
 export interface ParseResult {
   rows: ParsedRow[];
@@ -180,6 +182,24 @@ const FIELD_ALIASES: Record<FileType, Record<string, string[]>> = {
   managers: {
     managerExternalId: ['managerexternalid', 'managerid', 'salesrepid', 'repid', 'idменеджера'],
     name: ['name', 'fullname', 'менеджер', 'имя', 'rep', 'salesrep'],
+  },
+  content_metrics: {
+    contentId: ['contentid', 'post_id', 'id', 'content_id', 'idпоста'],
+    platform: ['platform', 'network', 'social', 'платформа', 'соцсеть'],
+    contentTitle: ['contenttitle', 'title', 'caption', 'text', 'заголовок'],
+    publishedAt: ['publishedat', 'date', 'published', 'posted', 'дата'],
+    impressions: ['impressions', 'views', 'показы'],
+    reach: ['reach', 'охват'],
+    profileVisits: ['profilevisits', 'profile_visits', 'визиты'],
+    likes: ['likes', 'like', 'лайки'],
+    comments: ['comments', 'комментарии'],
+    saves: ['saves', 'bookmarks', 'сохранения'],
+    shares: ['shares', 'reposts', 'репосты'],
+    inboundMessages: ['inboundmessages', 'messages', 'dms', 'сообщения'],
+    leadsGenerated: ['leadsgenerated', 'leads', 'лиды'],
+    dealsGenerated: ['dealsgenerated', 'deals', 'сделки'],
+    paidConversions: ['paidconversions', 'conversions', 'paid', 'оплаты'],
+    channelCampaignExternalId: ['channelcampaignexternalid', 'channel', 'source', 'канал'],
   },
 };
 
@@ -597,6 +617,83 @@ function parseManagers(rows: Record<string, unknown>[]): ParseResult {
   return { rows: parsed, errors, preview: rows.slice(0, 20), totalRows: rows.length };
 }
 
+function parseContentMetrics(rows: Record<string, unknown>[]): ParseResult {
+  const platforms = ['instagram', 'tiktok', 'facebook', 'linkedin', 'youtube', 'telegram', 'other'] as const;
+  const parsed: ParsedContentMetricRow[] = [];
+  const errors: ValidationError[] = [];
+  const warnings: { row: number; field: string; message: string }[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNum = i + 2;
+
+    if (!row.contentId || String(row.contentId).trim() === '') {
+      errors.push({ row: rowNum, field: 'contentId', message: 'ID контента обязателен' });
+      continue;
+    }
+    const rawPlatform = String(row.platform ?? '').toLowerCase().replace(/\s/g, '');
+    const platform = platforms.find((p) => rawPlatform.includes(p)) ?? 'other';
+
+    if (!row.publishedAt || !isValidDate(row.publishedAt)) {
+      errors.push({ row: rowNum, field: 'publishedAt', message: 'Дата публикации обязательна (YYYY-MM-DD)' });
+      continue;
+    }
+
+    parsed.push({
+      platform,
+      contentId: String(row.contentId).trim(),
+      contentTitle: row.contentTitle ? String(row.contentTitle).trim() : undefined,
+      publishedAt: toDateString(row.publishedAt),
+      impressions: Math.max(0, Number(row.impressions) || 0),
+      reach: Math.max(0, Number(row.reach) || 0),
+      profileVisits: Math.max(0, Number(row.profileVisits) || 0),
+      likes: Math.max(0, Number(row.likes) || 0),
+      comments: Math.max(0, Number(row.comments) || 0),
+      saves: Math.max(0, Number(row.saves) || 0),
+      shares: Math.max(0, Number(row.shares) || 0),
+      inboundMessages: Math.max(0, Number(row.inboundMessages) || 0),
+      leadsGenerated: Math.max(0, Number(row.leadsGenerated) || 0),
+      dealsGenerated: Math.max(0, Number(row.dealsGenerated) || 0),
+      paidConversions: Math.max(0, Number(row.paidConversions) || 0),
+      channelCampaignExternalId: row.channelCampaignExternalId ? String(row.channelCampaignExternalId).trim() : undefined,
+    });
+  }
+
+  return { rows: parsed, errors, warnings, preview: rows.slice(0, 20), totalRows: rows.length };
+}
+
+/**
+ * Parse pre-mapped rows by file type. Use after applyColumnMappings.
+ */
+export function parseFromRows(rows: Record<string, unknown>[], fileType: FileType): ParseResult {
+  const normalized = normalizeRowsForType(rows, fileType);
+
+  switch (fileType) {
+    case 'transactions':
+      return parseTransactions(normalized);
+    case 'customers':
+      return parseCustomers(normalized);
+    case 'invoices':
+      return parseInvoices(normalized);
+    case 'marketing_spend':
+      return parseMarketingSpend(normalized);
+    case 'leads':
+      return parseLeads(normalized);
+    case 'deals':
+      return parseDeals(normalized);
+    case 'payments':
+      return parsePayments(normalized);
+    case 'channels_campaigns':
+      return parseChannelsCampaigns(normalized);
+    case 'managers':
+      return parseManagers(normalized);
+    case 'content_metrics':
+      return parseContentMetrics(normalized);
+    default:
+      throw new Error(`Неизвестный тип файла: ${fileType}`);
+  }
+}
+
 // --- Main parse function ---
 export async function parseFile(file: File, fileType: FileType): Promise<ParseResult> {
   const rows = normalizeRowsForType(await fileToRows(file), fileType);
@@ -620,6 +717,8 @@ export async function parseFile(file: File, fileType: FileType): Promise<ParseRe
       return parseChannelsCampaigns(rows);
     case 'managers':
       return parseManagers(rows);
+    case 'content_metrics':
+      return parseContentMetrics(rows);
     default:
       throw new Error(`Неизвестный тип файла: ${fileType}`);
   }
@@ -638,6 +737,7 @@ export async function parseFileAuto(file: File): Promise<AutoParseResult> {
     'payments',
     'channels_campaigns',
     'managers',
+    'content_metrics',
   ] as const).map((type) => {
     const rows = normalizeRowsForType(rawRows, type);
     let result: ParseResult;
@@ -668,6 +768,9 @@ export async function parseFileAuto(file: File): Promise<AutoParseResult> {
         break;
       case 'managers':
         result = parseManagers(rows);
+        break;
+      case 'content_metrics':
+        result = parseContentMetrics(rows);
         break;
     }
 

@@ -7,3 +7,4 @@ export { default as MetricHelpIcon } from './MetricHelpIcon';
 export { default as RankedListItem } from './RankedListItem';
 export { default as SectionHeader } from './SectionHeader';
 export { default as SkeletonCard } from './SkeletonCard';
+export { default as TrustBadge, calculationModeToTrust } from './TrustBadge';

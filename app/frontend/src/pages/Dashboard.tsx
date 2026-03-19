@@ -1,5 +1,6 @@
 // ============================================================
 // BizPulse KZ — Executive Finance Dashboard
+// Restructured: Critical Issues → Bottlenecks → Performance → Recommendations
 // ============================================================
 
 import { useState, useMemo, useEffect } from 'react';
@@ -8,7 +9,6 @@ import AppLayout from '@/components/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-// lucide-react icons used indirectly via ControlTowerKpiCard delta
 import {
   getSession,
   getCustomers,
@@ -21,12 +21,23 @@ import {
   getManagers,
   seedDemoData,
   getUploads,
+  getContentMetrics,
 } from '@/lib/store';
 import {
   formatKZT,
 } from '@/lib/metrics';
 import type { DateRange } from '@/lib/types';
-import { calculateRevenueControlTowerAnalytics } from '@/lib/analytics';
+import {
+  calculateRevenueControlTowerAnalytics,
+  buildRevenueControlTowerModel,
+  computeUnifiedFunnel,
+  computeLeakageAnalysis,
+  computeSystemCompleteness,
+  FUNNEL_STAGE_LABELS,
+  explainOverdue,
+  explainLeakage,
+  explainCompleteness,
+} from '@/lib/analytics';
 import type { RevenueControlTowerAnalytics } from '@/lib/analytics/revenueControlTower';
 import RecommendationsCard from '@/components/RecommendationsCard';
 import { buildRecommendations } from '@/lib/recommendations';
@@ -55,6 +66,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { AlertTriangle, TrendingDown } from 'lucide-react';
 
 const EMPTY_CHART_URL = 'https://mgx-backend-cdn.metadl.com/generate/images/977836/2026-02-19/7965a3e5-68d6-4367-bc84-3890e3b4889b.png';
 
@@ -123,6 +135,7 @@ export default function DashboardPage() {
   const deals = useMemo(() => getDeals(companyId), [companyId]);
   const managers = useMemo(() => getManagers(companyId), [companyId]);
   const uploads = useMemo(() => getUploads(companyId), [companyId]);
+  const contentMetrics = useMemo(() => getContentMetrics(companyId), [companyId]);
 
   const analyticsRange: DateRange = useMemo(() => {
     if (dateRange !== 'all') {
@@ -180,6 +193,76 @@ export default function DashboardPage() {
     marketingSpend,
     managers,
   }), [analyticsRange, channelCampaigns, leads, deals, invoices, payments, customers, marketingSpend, managers]);
+
+  const model = useMemo(
+    () =>
+      buildRevenueControlTowerModel({
+        channelCampaigns,
+        leads,
+        deals,
+        invoices,
+        payments,
+        customers,
+        marketingSpend,
+        managers,
+      }),
+    [channelCampaigns, leads, deals, invoices, payments, customers, marketingSpend, managers]
+  );
+
+  const funnelStageData = useMemo(() => {
+    const fd = analytics.funnelDropOff;
+    const trafficCount = contentMetrics.length > 0
+      ? contentMetrics.reduce((s, c) => s + c.reach, 0)
+      : 0;
+    const engagementCount = contentMetrics.length > 0
+      ? contentMetrics.reduce((s, c) => s + c.likes + c.comments + c.saves + c.shares, 0)
+      : 0;
+    const invoicedCount = invoices.filter((inv) => {
+      if (!inv.dealExternalId) return false;
+      const deal = model.dealByExternalId.get(inv.dealExternalId);
+      return deal?.status === 'won';
+    }).length;
+    return {
+      traffic: { count: trafficCount, value: 0 },
+      engagement: { count: engagementCount, value: 0 },
+      lead: { count: fd.leads, value: 0 },
+      deal: { count: fd.deals, value: 0 },
+      won: { count: fd.wonDeals, value: 0 },
+      invoiced: { count: invoicedCount, value: 0 },
+      paid: { count: fd.paidWonDeals, value: analytics.revenue.value },
+    };
+  }, [analytics, contentMetrics, invoices, model]);
+
+  const unifiedFunnel = useMemo(
+    () => computeUnifiedFunnel(funnelStageData),
+    [funnelStageData]
+  );
+
+  const leakage = useMemo(
+    () =>
+      computeLeakageAnalysis({
+        model,
+        contentMetrics,
+        averageDealValue: analytics.revenue.value > 0 && analytics.funnelDropOff.paidWonDeals > 0
+          ? analytics.revenue.value / analytics.funnelDropOff.paidWonDeals
+          : undefined,
+      }),
+    [model, contentMetrics, analytics.revenue.value, analytics.funnelDropOff.paidWonDeals]
+  );
+
+  const completeness = useMemo(
+    () =>
+      computeSystemCompleteness({
+        leads,
+        deals,
+        invoices,
+        payments,
+        marketingSpend,
+        channelCampaigns,
+        contentMetrics,
+      }),
+    [leads, deals, invoices, payments, marketingSpend, channelCampaigns, contentMetrics]
+  );
 
   const heroChartData = useMemo(() => {
     const toMonthKey = (d: string) => {
@@ -283,13 +366,19 @@ export default function DashboardPage() {
         analytics,
         channelNameById,
         formatMoney: formatKZT,
-        maxItems: 3,
+        maxItems: 5,
       }),
     [analytics, channelNameById]
   );
 
   const funnelStageLabel = getStageLabel(analytics.insightSignals.funnelBottleneckStage);
   const topOverdue = analytics.insightSignals.topOverdueInvoices;
+  const stalledDeals = analytics.salesCashPriority.stalledDeals;
+  const overdueValue = analytics.overdueAmount.value;
+  const overdueExplanation = useMemo(
+    () => explainOverdue(overdueValue, analytics.expectedInflow.value),
+    [overdueValue, analytics.expectedInflow.value]
+  );
 
   const actionTypeLabel: Record<string, string> = {
     collect_overdue_invoice: 'Собрать просроченные оплаты',
@@ -302,6 +391,9 @@ export default function DashboardPage() {
   const tooltipStyle = buildTooltipStyle(chartTheme);
   const legendStyle = buildLegendStyle(chartTheme);
 
+  // Determine if there are critical issues to show
+  const hasCriticalIssues = overdueValue > 0 || stalledDeals.length > 0 || analytics.salesCashPriority.delayedCustomers.length > 0;
+
   return (
     <AppLayout>
       <div className="rct-page p-4 lg:p-6 max-w-[1400px] mx-auto">
@@ -309,12 +401,12 @@ export default function DashboardPage() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="rct-page-title">Контроль выручки</h1>
-            <p className="rct-body-micro mt-1">Деньги, причины и приоритеты — на одном экране</p>
+            <p className="rct-body-micro mt-1">Проблемы, причины и приоритеты — на одном экране</p>
           </div>
           <div className="flex items-center gap-3">
             <div className="hidden sm:flex items-center gap-2">
               <Button variant="outline" onClick={() => navigate('/marketing')}>
-                Маркетинг → Выручка
+                Маркетинг
               </Button>
               <Button variant="outline" onClick={() => navigate('/sales-cash')}>
                 Sales/Cash
@@ -349,282 +441,242 @@ export default function DashboardPage() {
         )}
 
         {hasAnyData && (
-          <div className="rct-section-gap">
-            {/* KPI Cards — Signal zone */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
-              <ControlTowerKpiCard
-                title="Выручка"
-                value={moneyOrDash(analytics.revenue.value)}
-                subtitle="оплачено в периоде"
-                delta={makeGrowthDelta(analytics.growthRate.value)}
-                status={analytics.revenue.value > 0 ? 'success' : 'warning'}
-                detail={{
-                  what: 'Суммарно оплачено за выбранный период',
-                  why: 'Главный итог по деньгам — реальные поступления, а не обещания.',
-                }}
-                sparkline={heroChartData.map((d) => d.paidRevenue)}
-              />
-              <ControlTowerKpiCard
-                title="Ожидаемый приток"
-                value={moneyOrDash(analytics.expectedInflow.value)}
-                subtitle={calculationBadge(analytics.expectedInflow.calculationMode) ?? 'по срокам оплаты'}
-                status={analytics.expectedInflow.value > 0 ? 'success' : 'default'}
-                detail={{
-                  what: 'Сколько денег ожидается по неоплаченным счетам',
-                  why: 'Показывает будущий приток и помогает планировать кассу.',
-                }}
-                sparkline={heroChartData.map((d) => d.expectedInflow)}
-              />
-              <ControlTowerKpiCard
-                title="Просрочено"
-                value={moneyOrDash(analytics.overdueAmount.value)}
-                subtitle={analytics.overdueAmount.value > 0 ? 'угроза притоку' : 'всё в норме'}
-                status={analytics.overdueAmount.value > 0 ? 'warning' : 'success'}
-                detail={{
-                  what: 'Неоплаченные счета с истёкшим сроком',
-                  why: 'Прямой индикатор застрявших денег и риска кассового разрыва.',
-                }}
-                sparkline={heroChartData.map((d) => d.overdueExposure)}
-              />
-              <ControlTowerKpiCard
-                title="Лид → сделка"
-                value={percentFromRatio(analytics.leadToDealConversion.value)}
-                subtitle={calculationBadge(analytics.leadToDealConversion.calculationMode) ?? 'воронка лидов'}
-                status={analytics.leadToDealConversion.value >= 0.18 ? 'success' : 'warning'}
-                detail={{
-                  what: 'Доля лидов, превращённых в сделки',
-                  why: 'Показывает качество лидов и эффективность первого контакта.',
-                }}
-              />
-              <ControlTowerKpiCard
-                title="Сделка → оплачено"
-                value={percentFromRatio(analytics.dealToPaidConversion.value)}
-                subtitle={calculationBadge(analytics.dealToPaidConversion.calculationMode) ?? 'сквозная связь'}
-                status={
-                  analytics.dealToPaidConversion.value >= 0.45
-                    ? 'success'
-                    : analytics.dealToPaidConversion.value >= 0.25
-                      ? 'warning'
-                      : 'danger'
-                }
-                detail={{
-                  what: 'Доля сделок, дошедших до оплаты',
-                  why: 'Ключ к пониманию, доходят ли продажи до реальных денег.',
-                }}
-              />
-              <ControlTowerKpiCard
-                title="Рост выручки"
-                value={formatGrowth(analytics.growthRate.value)}
-                subtitle="к прошлому периоду"
-                delta={makeGrowthDelta(analytics.growthRate.value)}
-                status={analytics.growthRate.value !== null && analytics.growthRate.value >= 0 ? 'success' : 'danger'}
-                detail={{
-                  what: 'Изменение выручки по сравнению с прошлым периодом',
-                  why: 'Быстрая проверка: ускоряется ли бизнес или замедляется.',
-                }}
-              />
-            </div>
+          <div className="rct-section-gap space-y-8">
 
-            <div className="rct-section-gap grid grid-cols-1 xl:grid-cols-12 gap-6">
-              {/* Hero + evidence */}
-              <div className="xl:col-span-8 space-y-6">
-                <div className="rct-hero-card rct-card-padding">
-                  <div className="flex items-start justify-between gap-3 mb-4">
-                    <SectionHeader
-                      title="Тренд по деньгам"
-                      description="Оплачено, ожидаемый приток и просрочки — вместе."
-                    />
-                    <Badge variant="outline" className="text-xs shrink-0">
-                      {heroChartData.length ? `${heroChartData[0].monthLabel} → ${heroChartData[heroChartData.length - 1].monthLabel}` : 'Нет данных'}
-                    </Badge>
+            {/* Completeness bar — when partial data */}
+            {completeness.overall < 100 && (
+              <div className="rct-card-inset p-3 flex flex-wrap items-center gap-3">
+                <span className="text-xs font-medium text-muted-foreground">Полнота данных:</span>
+                {completeness.areas.map((a) => (
+                  <Badge
+                    key={a.area}
+                    variant="outline"
+                    className={cn(
+                      'text-[10px]',
+                      a.score >= 80 ? 'text-teal-600 dark:text-teal-400 border-teal-300/60' : a.score >= 50 ? 'text-amber-600 dark:text-amber-400 border-amber-300/60' : 'text-rose-600 dark:text-rose-400 border-rose-300/60'
+                    )}
+                  >
+                    {a.label}: {a.score}%
+                  </Badge>
+                ))}
+                <span className="text-[11px] text-muted-foreground">
+                  Неполные данные могут влиять на точность расчётов. Загрузите недостающие сущности.
+                </span>
+              </div>
+            )}
+
+            {/* ============================================= */}
+            {/* SECTION 1: CRITICAL ISSUES                    */}
+            {/* Cash problems, unpaid invoices, risks         */}
+            {/* ============================================= */}
+            {hasCriticalIssues && (
+              <section>
+                <div className="flex items-center gap-2 mb-4">
+                  <AlertTriangle className="h-5 w-5 text-rose-500" />
+                  <h2 className="text-lg font-bold text-foreground">Критические проблемы</h2>
+                  <Badge variant="outline" className="text-xs text-rose-600 dark:text-rose-400 border-rose-300/60 dark:border-rose-800/40">
+                    требуют внимания
+                  </Badge>
+                </div>
+
+                {/* Critical KPI strip */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+                  <ControlTowerKpiCard
+                    title="Просрочено"
+                    value={moneyOrDash(overdueValue)}
+                    subtitle={overdueValue > 0 ? 'угроза притоку' : 'всё в норме'}
+                    status={overdueValue > 0 ? 'danger' : 'success'}
+                    detail={{
+                      what: overdueExplanation.what,
+                      why: overdueExplanation.why,
+                    }}
+                    sparkline={heroChartData.map((d) => d.overdueExposure)}
+                  />
+                  <ControlTowerKpiCard
+                    title="Застрявшие сделки"
+                    value={String(stalledDeals.length)}
+                    subtitle="без активности"
+                    status={stalledDeals.length > 0 ? 'warning' : 'success'}
+                    detail={{
+                      what: 'Сделки без движения — деньги зависают',
+                      why: 'Каждая замершая сделка — потенциально потерянная выручка.',
+                    }}
+                  />
+                  <ControlTowerKpiCard
+                    title="Клиенты с задержкой"
+                    value={String(analytics.salesCashPriority.delayedCustomers.length)}
+                    subtitle="проблема с оплатой"
+                    status={analytics.salesCashPriority.delayedCustomers.length > 0 ? 'warning' : 'success'}
+                    detail={{
+                      what: 'Клиенты, систематически задерживающие оплаты',
+                      why: 'Повторяющаяся задержка требует изменения условий.',
+                    }}
+                  />
+                  <ControlTowerKpiCard
+                    title="Неоплаченные счета"
+                    value={String(analytics.salesCashPriority.unpaidInvoices.length)}
+                    subtitle="ожидают оплаты"
+                    status={analytics.salesCashPriority.unpaidInvoices.length > 5 ? 'warning' : 'default'}
+                    detail={{
+                      what: 'Все неоплаченные счета в периоде',
+                      why: 'Общий объём "денег на очереди".',
+                    }}
+                  />
+                </div>
+
+                {/* Top overdue invoices + delayed customers */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div className="rct-card rct-card-padding-compact border-l-[3px] border-l-rose-400/70">
+                    <SectionHeader title="Топ просрочки" helpKey="overdue_amount" size="sm" />
+                    <div className="mt-3 space-y-2">
+                      {topOverdue.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Просрочки нет — отлично.</p>
+                      ) : (
+                        topOverdue.slice(0, 5).map((x) => (
+                          <div key={x.invoiceExternalId ?? `${x.customerExternalId}_${x.dueDate ?? 'x'}`} className="rct-card-inset p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-xs font-medium text-foreground truncate max-w-[160px]">
+                                {x.invoiceExternalId ?? x.customerExternalId ?? 'Счёт'}
+                              </span>
+                              <span className="text-xs font-semibold text-foreground whitespace-nowrap">{formatKZT(x.overdueAmount)}</span>
+                            </div>
+                            {x.dueDate ? (
+                              <p className="text-[11px] text-muted-foreground mt-1">
+                                срок: {new Date(x.dueDate + 'T00:00:00').toLocaleDateString('ru-KZ')}
+                              </p>
+                            ) : null}
+                          </div>
+                        ))
+                      )}
+                    </div>
                   </div>
 
-                  <div className="h-[270px]">
-                    {heroChartData.length === 0 ? (
-                      <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
-                        Недостаточно данных для тренда
-                      </div>
-                    ) : (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={heroChartData} margin={CHART_MARGIN}>
-                          <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridStroke} vertical={false} />
-                          <XAxis dataKey="monthLabel" tick={axisTick} axisLine={false} />
-                          <YAxis
-                            tick={axisTick}
-                            tickFormatter={(v) => {
-                              if (!Number.isFinite(v)) return '—';
-                              const num = Number(v);
-                              return num >= 1_000_000 ? `${Math.round(num / 1_000_000)}M` : new Intl.NumberFormat('ru-KZ').format(num);
-                            }}
-                          />
-                          <RechartsTooltip
-                            contentStyle={tooltipStyle.contentStyle}
-                            wrapperStyle={tooltipStyle.wrapperStyle}
-                            formatter={(value: unknown) => {
-                              if (!Number.isFinite(Number(value))) return '—';
-                              return formatKZT(Number(value));
-                            }}
-                          />
-                          <Legend wrapperStyle={legendStyle.wrapperStyle} iconSize={legendStyle.iconSize} />
-                          <Line type="monotone" dataKey="paidRevenue" name="Оплачено" stroke={CHART_COLORS.paid} strokeWidth={2} dot={false} />
-                          <Line type="monotone" dataKey="expectedInflow" name="Ожидаемый приток" stroke={CHART_COLORS.expected} strokeWidth={2} dot={false} />
-                          <Line
-                            type="monotone"
-                            dataKey="overdueExposure"
-                            name="Просрочка"
-                            stroke={CHART_COLORS.overdue}
-                            strokeWidth={2}
-                            dot={false}
-                            strokeDasharray="6 4"
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    )}
+                  <div className="rct-card rct-card-padding-compact border-l-[3px] border-l-amber-400/70">
+                    <SectionHeader title="Клиенты с задержкой" size="sm" />
+                    <div className="mt-3 space-y-2">
+                      {analytics.salesCashPriority.delayedCustomers.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Нет клиентов с задержкой.</p>
+                      ) : (
+                        (() => {
+                          const top = analytics.salesCashPriority.delayedCustomers
+                            .slice()
+                            .sort((a, b) => b.overdueAmount - a.overdueAmount)
+                            .slice(0, 5);
+                          const max = Math.max(1, ...top.map((c) => c.overdueAmount));
+                          return top.map((c) => (
+                            <RankedListItem
+                              key={c.customerExternalId}
+                              label={c.customerExternalId}
+                              sublabel={`${c.overdueInvoiceCount} просроч. счетов`}
+                              value={formatKZT(c.overdueAmount)}
+                              progressPct={Math.round((c.overdueAmount / max) * 100)}
+                              barColor="amber"
+                            />
+                          ));
+                        })()
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {/* ============================================= */}
+            {/* SECTION 2: BOTTLENECKS                        */}
+            {/* Conversion drops, stuck deals                 */}
+            {/* ============================================= */}
+            <section>
+              <div className="flex items-center gap-2 mb-4">
+                <TrendingDown className="h-5 w-5 text-amber-500" />
+                <h2 className="text-lg font-bold text-foreground">Узкие места</h2>
+                <Badge variant="outline" className="text-xs">
+                  {funnelStageLabel}
+                </Badge>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                {/* Funnel conversion */}
+                <div className="lg:col-span-5 rct-card rct-card-padding">
+                  <SectionHeader title="Воронка" helpKey="funnel_drop_off" size="sm" />
+                  <div className="mt-4 space-y-3">
+                    {[
+                      { label: 'Лиды', value: analytics.funnelDropOff.leads, note: `→ ${percentFromRatio(analytics.funnelDropOff.leadToDealRate)}` },
+                      { label: 'Сделки', value: analytics.funnelDropOff.deals, note: `→ ${percentFromRatio(analytics.funnelDropOff.dealToWonRate)}` },
+                      { label: 'Выигранные', value: analytics.funnelDropOff.wonDeals, note: `→ ${percentFromRatio(analytics.funnelDropOff.wonToPaidRate)}` },
+                      { label: 'Оплачено', value: analytics.funnelDropOff.paidWonDeals, note: '' },
+                    ].map((s, idx, arr) => {
+                      const max = Math.max(1, arr[0].value, arr[1].value, arr[2].value, arr[3].value);
+                      const w = Math.round((s.value / max) * 100);
+                      return (
+                        <div key={s.label} className="space-y-1">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-xs font-medium text-muted-foreground">{s.label}</span>
+                            <span className="text-xs text-foreground font-semibold">{s.value}</span>
+                          </div>
+                          <div className="h-2 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className={cn(
+                                'h-full',
+                                idx === 0 ? 'bg-foreground/80' : idx === 1 ? 'bg-primary/70' : idx === 2 ? 'bg-teal-600/70 dark:bg-teal-500/60' : 'bg-teal-500/70 dark:bg-teal-400/60',
+                              )}
+                              style={{ width: `${w}%` }}
+                            />
+                          </div>
+                          {s.note ? <p className="text-[11px] text-muted-foreground">Конверсия: {s.note}</p> : null}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
-                {/* Evidence row */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {/* Funnel */}
-                  <div className="rct-card rct-card-padding-compact">
-                    <div className="flex items-start justify-between gap-3">
-                      <SectionHeader title="Воронка" helpKey="funnel_drop_off" size="sm" />
-                      <Badge variant="outline" className="text-xs">
+                {/* Bottleneck detail + worst sources */}
+                <div className="lg:col-span-7 space-y-4">
+                  <div className="rct-card-raised rct-card-padding">
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <SectionHeader title="Главный bottleneck" size="sm" />
+                      <Badge variant="outline" className="text-xs text-rose-600 dark:text-rose-400 border-rose-300/60 dark:border-rose-800/40">
                         {funnelStageLabel}
                       </Badge>
                     </div>
-                    <div className="mt-4 space-y-3">
-                      {[
-                        { label: 'Лиды', value: analytics.funnelDropOff.leads, note: `${percentFromRatio(analytics.funnelDropOff.leadToDealRate)}` },
-                        { label: 'Сделки', value: analytics.funnelDropOff.deals, note: `${percentFromRatio(analytics.funnelDropOff.dealToWonRate)}` },
-                        { label: 'Выигранные', value: analytics.funnelDropOff.wonDeals, note: `${percentFromRatio(analytics.funnelDropOff.wonToPaidRate)}` },
-                        { label: 'Оплачено', value: analytics.funnelDropOff.paidWonDeals, note: '' },
-                      ].map((s, idx, arr) => {
-                        const max = Math.max(1, arr[0].value, arr[1].value, arr[2].value, arr[3].value);
-                        const w = Math.round((s.value / max) * 100);
-                        return (
-                          <div key={s.label} className="space-y-1">
-                            <div className="flex items-center justify-between gap-3">
-                              <span className="text-xs font-medium text-muted-foreground">{s.label}</span>
-                              <span className="text-xs text-foreground font-semibold">{s.value}</span>
-                            </div>
-                            <div className="h-2 bg-muted rounded-full overflow-hidden">
-                              <div
-                                className={cn(
-                                  'h-full',
-                                  idx === 0 ? 'bg-foreground/80' : idx === 1 ? 'bg-primary/70' : idx === 2 ? 'bg-teal-600/70 dark:bg-teal-500/60' : 'bg-teal-500/70 dark:bg-teal-400/60',
-                                )}
-                                style={{ width: `${w}%` }}
-                              />
-                            </div>
-                            {s.note ? <p className="text-[11px] text-muted-foreground">Конверсия: {s.note}</p> : null}
-                          </div>
-                        );
-                      })}
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="rct-card-inset p-3 text-center">
+                        <div className="text-[10px] text-muted-foreground">Лид→Сделка</div>
+                        <div className="text-sm font-bold text-foreground mt-0.5">{percentFromRatio(analytics.leadToDealConversion.value)}</div>
+                      </div>
+                      <div className="rct-card-inset p-3 text-center">
+                        <div className="text-[10px] text-muted-foreground">Сделка→Оплата</div>
+                        <div className="text-sm font-bold text-foreground mt-0.5">{percentFromRatio(analytics.dealToPaidConversion.value)}</div>
+                      </div>
+                      <div className="rct-card-inset p-3 text-center">
+                        <div className="text-[10px] text-muted-foreground">Просрочка</div>
+                        <div className="text-sm font-bold text-foreground mt-0.5">{formatKZT(overdueValue)}</div>
+                      </div>
                     </div>
-                  </div>
-
-                  {/* Paid by source */}
-                  <div className="rct-card rct-card-padding-compact">
-                    <div className="flex items-start justify-between gap-3">
-                      <SectionHeader title="Деньги по источникам" helpKey="paid_revenue_by_source" size="sm" />
-                      <Badge variant="outline" className="text-xs shrink-0">{analytics.paidRevenueBySource.rows.length}</Badge>
-                    </div>
-                    <div className="mt-4 space-y-3">
-                      {(() => {
-                        const rows = analytics.paidRevenueBySource.rows.slice().sort((a, b) => b.paidRevenue - a.paidRevenue).slice(0, 5);
-                        if (rows.length === 0) {
-                          return <p className="rct-body-micro">Нет данных для атрибуции</p>;
-                        }
-                        const max = Math.max(1, ...rows.map((r) => r.paidRevenue));
-                        return rows.map((r) => (
-                          <RankedListItem
-                            key={r.channelCampaignExternalId}
-                            label={channelNameById.get(r.channelCampaignExternalId) ?? r.channelCampaignExternalId}
-                            value={formatKZT(r.paidRevenue)}
-                            progressPct={Math.round((r.paidRevenue / max) * 100)}
-                            barColor="navy"
-                          />
-                        ));
-                      })()}
-                    </div>
-                    {analytics.paidRevenueBySource.unattributedPaidRevenue > 0 ? (
-                      <p className="mt-3 text-xs text-rose-600 dark:text-rose-400">
-                        Не размечено: {formatKZT(analytics.paidRevenueBySource.unattributedPaidRevenue)}
+                    {analytics.insightSignals.worstChannels[0] ? (
+                      <p className="text-xs text-muted-foreground mt-3">
+                        Источник-проблема: <span className="font-medium text-foreground">{channelNameById.get(analytics.insightSignals.worstChannels[0].channelCampaignExternalId) ?? analytics.insightSignals.worstChannels[0].channelCampaignExternalId}</span>
                       </p>
                     ) : null}
                   </div>
 
-                  {/* Cash risk snapshot */}
-                  <div className="rct-card rct-card-padding-compact">
-                    <div className="flex items-start justify-between gap-3">
-                      <SectionHeader title="Cash-пульс" helpKey="overdue_amount" size="sm" />
-                      <Badge variant="outline" className="text-xs shrink-0">
-                        {analytics.overdueAmount.value > 0 ? 'Есть риск' : 'Без просрочки'}
-                      </Badge>
-                    </div>
-
-                    <div className="mt-4 space-y-2.5">
-                      <div className="rct-card-inset p-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-xs font-medium text-muted-foreground">Просрочено</span>
-                          <span className="text-xs font-semibold text-foreground">{formatKZT(analytics.overdueAmount.value)}</span>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2.5">
-                        <div className="rct-card-inset p-3">
-                          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Счета</div>
-                          <div className="text-sm font-bold text-foreground mt-0.5">{analytics.salesCashPriority.overdueInvoices.length}</div>
-                        </div>
-                        <div className="rct-card-inset p-3">
-                          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Клиенты</div>
-                          <div className="text-sm font-bold text-foreground mt-0.5">{analytics.salesCashPriority.delayedCustomers.length}</div>
-                        </div>
+                  {/* Leakage overview — funnel-wide */}
+                  {leakage.totalItems > 0 && (
+                    <div className="rct-card rct-card-padding border-l-[3px] border-l-amber-400/70">
+                      <SectionHeader title="Утечки воронки" size="sm" description={explainLeakage(leakage).why} />
+                      <div className="mt-3 space-y-2">
+                        {leakage.byCategory.slice(0, 4).map((c) => (
+                          <div key={c.category} className="flex items-center justify-between gap-2 text-xs">
+                            <span className="text-muted-foreground">{c.label}</span>
+                            <span className="font-medium">{c.count} · {formatKZT(c.estimatedLoss)}</span>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  </div>
-                </div>
-
-                {/* Recommendations (compact) */}
-                <RecommendationsCard
-                  title="Рекомендации на сейчас"
-                  description="Что болит, почему важно и что сделать дальше."
-                  items={recommendationItems}
-                  helpKey="priority_actions"
-                  compact
-                />
-
-                {/* Best / Worst sources */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="rct-card rct-card-padding">
-                    <div className="flex items-start justify-between gap-3 mb-4">
-                      <SectionHeader title="Лучшие по деньгам" size="sm" />
-                      <Badge variant="outline" className="text-xs shrink-0">Top</Badge>
-                    </div>
-                    <div className="space-y-3">
-                      {(() => {
-                        const rows = analytics.paidRevenueBySource.rows
-                          .slice()
-                          .sort((a, b) => b.paidRevenue - a.paidRevenue)
-                          .slice(0, 4);
-                        if (rows.length === 0) return <p className="rct-body-micro">Нет данных</p>;
-                        const max = Math.max(1, ...rows.map((r) => r.paidRevenue));
-                        return rows.map((r) => (
-                          <RankedListItem
-                            key={r.channelCampaignExternalId}
-                            label={channelNameById.get(r.channelCampaignExternalId) ?? r.channelCampaignExternalId}
-                            value={formatKZT(r.paidRevenue)}
-                            progressPct={Math.round((r.paidRevenue / max) * 100)}
-                            barColor="emerald"
-                          />
-                        ));
-                      })()}
-                    </div>
-                  </div>
+                  )}
 
                   <CollapsibleSection
                     title="Где больше всего провала"
-                    summary={`Bottleneck: ${funnelStageLabel}`}
+                    summary={`${funnelStageLabel}`}
                     badge={<Badge variant="outline" className="text-xs">Причины</Badge>}
                     defaultOpen={false}
                   >
@@ -664,115 +716,240 @@ export default function DashboardPage() {
                   </CollapsibleSection>
                 </div>
               </div>
+            </section>
 
-              {/* Right rail — Decision panel */}
-              <div className="xl:col-span-4 space-y-5">
-                {/* Bottleneck summary */}
-                <div className="rct-card-raised rct-card-padding">
-                  <SectionHeader title="Риски и что делать" helpKey="priority_actions" size="sm" />
-                  <div className="mt-4 space-y-3">
-                    <div className="rct-card-inset p-3.5">
-                      <div className="flex items-center justify-between gap-3 mb-1.5">
-                        <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Bottleneck</span>
-                        <Badge variant="outline" className="text-[10px]">
-                          {analytics.salesCashPriority.overdueInvoices.length > 0 ? 'нужны действия' : 'держим темп'}
-                        </Badge>
-                      </div>
-                      <p className="text-sm font-semibold text-foreground">{funnelStageLabel}</p>
-                      {analytics.insightSignals.worstChannels[0] ? (
-                        <p className="text-xs text-muted-foreground mt-1.5">
-                          Источник: {channelNameById.get(analytics.insightSignals.worstChannels[0].channelCampaignExternalId) ?? analytics.insightSignals.worstChannels[0].channelCampaignExternalId}
-                        </p>
-                      ) : null}
+            {/* ============================================= */}
+            {/* SECTION 3: PERFORMANCE DRIVERS                */}
+            {/* Marketing, revenue sources, money trend       */}
+            {/* ============================================= */}
+            <section>
+              <div className="flex items-center gap-2 mb-4">
+                <h2 className="text-lg font-bold text-foreground">Драйверы выручки</h2>
+              </div>
+
+              {/* KPI Cards — Signal zone */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+                <ControlTowerKpiCard
+                  title="Выручка"
+                  value={moneyOrDash(analytics.revenue.value)}
+                  subtitle="оплачено в периоде"
+                  delta={makeGrowthDelta(analytics.growthRate.value)}
+                  status={analytics.revenue.value > 0 ? 'success' : 'warning'}
+                  detail={{
+                    what: 'Суммарно оплачено за выбранный период',
+                    why: 'Главный итог по деньгам — реальные поступления.',
+                  }}
+                  sparkline={heroChartData.map((d) => d.paidRevenue)}
+                />
+                <ControlTowerKpiCard
+                  title="Ожидаемый приток"
+                  value={moneyOrDash(analytics.expectedInflow.value)}
+                  subtitle={calculationBadge(analytics.expectedInflow.calculationMode) ?? 'по срокам оплаты'}
+                  status={analytics.expectedInflow.value > 0 ? 'success' : 'default'}
+                  detail={{
+                    what: 'Деньги, ожидаемые по неоплаченным счетам',
+                    why: 'Будущий приток — основа для планирования кассы.',
+                  }}
+                  sparkline={heroChartData.map((d) => d.expectedInflow)}
+                />
+                <ControlTowerKpiCard
+                  title="Лид → сделка"
+                  value={percentFromRatio(analytics.leadToDealConversion.value)}
+                  subtitle={calculationBadge(analytics.leadToDealConversion.calculationMode) ?? 'воронка лидов'}
+                  status={analytics.leadToDealConversion.value >= 0.18 ? 'success' : 'warning'}
+                  detail={{
+                    what: 'Доля лидов, превращённых в сделки',
+                    why: 'Показывает качество лидов и эффективность первого контакта.',
+                  }}
+                />
+                <ControlTowerKpiCard
+                  title="Рост выручки"
+                  value={formatGrowth(analytics.growthRate.value)}
+                  subtitle="к прошлому периоду"
+                  delta={makeGrowthDelta(analytics.growthRate.value)}
+                  status={analytics.growthRate.value !== null && analytics.growthRate.value >= 0 ? 'success' : 'danger'}
+                  detail={{
+                    what: 'Изменение выручки по сравнению с прошлым периодом',
+                    why: 'Быстрая проверка: ускоряется ли бизнес или замедляется.',
+                  }}
+                />
+              </div>
+
+              {/* Money trend chart + revenue by source */}
+              <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
+                <div className="xl:col-span-8">
+                  <div className="rct-hero-card rct-card-padding">
+                    <div className="flex items-start justify-between gap-3 mb-4">
+                      <SectionHeader
+                        title="Тренд по деньгам"
+                        description="Оплачено, ожидаемый приток и просрочки."
+                      />
+                      <Badge variant="outline" className="text-xs shrink-0">
+                        {heroChartData.length ? `${heroChartData[0].monthLabel} → ${heroChartData[heroChartData.length - 1].monthLabel}` : 'Нет данных'}
+                      </Badge>
                     </div>
 
-                    {/* Key metrics strip */}
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="rct-card-inset p-2.5 text-center">
-                        <div className="text-[10px] text-muted-foreground">Лид→Сделка</div>
-                        <div className="text-sm font-bold text-foreground mt-0.5">{percentFromRatio(analytics.leadToDealConversion.value)}</div>
-                      </div>
-                      <div className="rct-card-inset p-2.5 text-center">
-                        <div className="text-[10px] text-muted-foreground">Сделка→Оплата</div>
-                        <div className="text-sm font-bold text-foreground mt-0.5">{percentFromRatio(analytics.dealToPaidConversion.value)}</div>
-                      </div>
-                      <div className="rct-card-inset p-2.5 text-center">
-                        <div className="text-[10px] text-muted-foreground">Просрочка</div>
-                        <div className="text-sm font-bold text-foreground mt-0.5">{formatKZT(analytics.overdueAmount.value)}</div>
-                      </div>
+                    <div className="h-[250px]">
+                      {heroChartData.length === 0 ? (
+                        <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+                          Недостаточно данных для тренда
+                        </div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={heroChartData} margin={CHART_MARGIN}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridStroke} vertical={false} />
+                            <XAxis dataKey="monthLabel" tick={axisTick} axisLine={false} />
+                            <YAxis
+                              tick={axisTick}
+                              tickFormatter={(v) => {
+                                if (!Number.isFinite(v)) return '—';
+                                const num = Number(v);
+                                return num >= 1_000_000 ? `${Math.round(num / 1_000_000)}M` : new Intl.NumberFormat('ru-KZ').format(num);
+                              }}
+                            />
+                            <RechartsTooltip
+                              contentStyle={tooltipStyle.contentStyle}
+                              wrapperStyle={tooltipStyle.wrapperStyle}
+                              formatter={(value: unknown) => {
+                                if (!Number.isFinite(Number(value))) return '—';
+                                return formatKZT(Number(value));
+                              }}
+                            />
+                            <Legend wrapperStyle={legendStyle.wrapperStyle} iconSize={legendStyle.iconSize} />
+                            <Line type="monotone" dataKey="paidRevenue" name="Оплачено" stroke={CHART_COLORS.paid} strokeWidth={2} dot={false} />
+                            <Line type="monotone" dataKey="expectedInflow" name="Ожидаемый приток" stroke={CHART_COLORS.expected} strokeWidth={2} dot={false} />
+                            <Line
+                              type="monotone"
+                              dataKey="overdueExposure"
+                              name="Просрочка"
+                              stroke={CHART_COLORS.overdue}
+                              strokeWidth={2}
+                              dot={false}
+                              strokeDasharray="6 4"
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      )}
                     </div>
                   </div>
                 </div>
 
-                {/* Overdue invoices */}
-                <CollapsibleSection
-                  title="Топ просрочки"
-                  summary={topOverdue.length ? `${topOverdue.length} шт.` : 'нет'}
-                  defaultOpen={topOverdue.length > 0}
-                >
-                  <div className="space-y-2">
-                    {topOverdue.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">Просрочки нет.</p>
-                    ) : (
-                      topOverdue.slice(0, 4).map((x) => (
-                        <div key={x.invoiceExternalId ?? `${x.customerExternalId}_${x.dueDate ?? 'x'}`} className="rct-card-inset p-3">
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-xs font-medium text-foreground truncate max-w-[160px]">
-                              {x.invoiceExternalId ?? x.customerExternalId ?? 'Счёт'}
-                            </span>
-                            <span className="text-xs font-semibold text-foreground whitespace-nowrap">{formatKZT(x.overdueAmount)}</span>
-                          </div>
-                          {x.dueDate ? (
-                            <p className="text-[11px] text-muted-foreground mt-1">
-                              срок: {new Date(x.dueDate + 'T00:00:00').toLocaleDateString('ru-KZ')}
-                            </p>
-                          ) : null}
-                        </div>
-                      ))
-                    )}
+                {/* Revenue by source */}
+                <div className="xl:col-span-4 space-y-4">
+                  <div className="rct-card rct-card-padding">
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <SectionHeader title="Деньги по источникам" helpKey="paid_revenue_by_source" size="sm" />
+                      <div className="flex items-center gap-2 shrink-0">
+                        {analytics.paidRevenueBySource.coverage.paidAttribution.fallback > 0 && (
+                          <Badge variant="outline" className="text-[10px] text-amber-600 dark:text-amber-400 border-amber-300/60">По неполным связям</Badge>
+                        )}
+                        <Badge variant="outline" className="text-xs">{analytics.paidRevenueBySource.rows.length}</Badge>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      {(() => {
+                        const rows = analytics.paidRevenueBySource.rows.slice().sort((a, b) => b.paidRevenue - a.paidRevenue).slice(0, 5);
+                        if (rows.length === 0) {
+                          return <p className="rct-body-micro">Нет данных для атрибуции</p>;
+                        }
+                        const max = Math.max(1, ...rows.map((r) => r.paidRevenue));
+                        return rows.map((r) => (
+                          <RankedListItem
+                            key={r.channelCampaignExternalId}
+                            label={channelNameById.get(r.channelCampaignExternalId) ?? r.channelCampaignExternalId}
+                            value={formatKZT(r.paidRevenue)}
+                            progressPct={Math.round((r.paidRevenue / max) * 100)}
+                            barColor="emerald"
+                          />
+                        ));
+                      })()}
+                    </div>
+                    {analytics.paidRevenueBySource.unattributedPaidRevenue > 0 ? (
+                      <p className="mt-3 text-xs text-rose-600 dark:text-rose-400">
+                        Не размечено: {formatKZT(analytics.paidRevenueBySource.unattributedPaidRevenue)}
+                      </p>
+                    ) : null}
                   </div>
-                </CollapsibleSection>
 
-                {/* Priority actions */}
-                <CollapsibleSection
-                  title="Приоритетные действия"
-                  summary={`${analytics.salesCashPriority.priorityActionCandidates.length} кандидатов`}
-                  defaultOpen={analytics.salesCashPriority.priorityActionCandidates.length > 0}
-                >
-                  <div className="space-y-2">
-                    {analytics.salesCashPriority.priorityActionCandidates.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">Нет кандидатов.</p>
-                    ) : (
-                      analytics.salesCashPriority.priorityActionCandidates.slice(0, 3).map((a) => (
-                        <div key={a.id} className="rct-card-inset p-3">
-                          <p className="text-sm font-semibold text-foreground truncate">{actionTypeLabel[a.type] ?? a.type}</p>
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            <Badge variant="outline" className="text-[10px]">
-                              {a.area === 'cashflow' ? 'cash' : a.area === 'sales' ? 'sales' : 'revenue'}
-                            </Badge>
-                            <Badge
-                              variant="outline"
-                              className={cn('text-[10px]',
-                                a.priority === 'high'
-                                  ? 'text-rose-600 dark:text-rose-400 border-rose-300/60 dark:border-rose-800/40'
-                                  : a.priority === 'medium'
-                                    ? 'text-yellow-700 dark:text-yellow-400 border-yellow-300/60 dark:border-yellow-800/40'
-                                    : 'text-primary border-primary/30'
-                              )}
-                            >
-                              {a.priority === 'high' ? 'Высокий' : a.priority === 'medium' ? 'Средний' : 'Низкий'}
-                            </Badge>
-                          </div>
-                          {a.facts[0] ? (
-                            <p className="text-xs text-muted-foreground mt-1.5">{a.facts[0]}</p>
-                          ) : null}
-                        </div>
-                      ))
-                    )}
+                  {/* Best sources */}
+                  <div className="rct-card rct-card-padding-compact">
+                    <SectionHeader title="Лучшие по деньгам" size="sm" />
+                    <div className="mt-3 space-y-2">
+                      {(() => {
+                        const rows = analytics.paidRevenueBySource.rows
+                          .slice()
+                          .sort((a, b) => b.paidRevenue - a.paidRevenue)
+                          .slice(0, 3);
+                        if (rows.length === 0) return <p className="rct-body-micro">Нет данных</p>;
+                        const max = Math.max(1, ...rows.map((r) => r.paidRevenue));
+                        return rows.map((r) => (
+                          <RankedListItem
+                            key={r.channelCampaignExternalId}
+                            label={channelNameById.get(r.channelCampaignExternalId) ?? r.channelCampaignExternalId}
+                            value={formatKZT(r.paidRevenue)}
+                            progressPct={Math.round((r.paidRevenue / max) * 100)}
+                            barColor="emerald"
+                          />
+                        ));
+                      })()}
+                    </div>
                   </div>
-                </CollapsibleSection>
+                </div>
               </div>
-            </div>
+            </section>
+
+            {/* ============================================= */}
+            {/* SECTION 4: RECOMMENDATIONS (at the very bottom) */}
+            {/* ============================================= */}
+            <section>
+              <RecommendationsCard
+                title="Рекомендации"
+                description="Что не так, почему важно и что сделать дальше."
+                items={recommendationItems}
+                helpKey="priority_actions"
+                compact
+              />
+
+              {/* Priority actions */}
+              <CollapsibleSection
+                title="Приоритетные действия"
+                summary={`${analytics.salesCashPriority.priorityActionCandidates.length} кандидатов`}
+                defaultOpen={analytics.salesCashPriority.priorityActionCandidates.length > 0}
+              >
+                <div className="space-y-2">
+                  {analytics.salesCashPriority.priorityActionCandidates.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Нет кандидатов.</p>
+                  ) : (
+                    analytics.salesCashPriority.priorityActionCandidates.slice(0, 5).map((a) => (
+                      <div key={a.id} className="rct-card-inset p-3">
+                        <p className="text-sm font-semibold text-foreground truncate">{actionTypeLabel[a.type] ?? a.type}</p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          <Badge variant="outline" className="text-[10px]">
+                            {a.area === 'cashflow' ? 'cash' : a.area === 'sales' ? 'sales' : 'revenue'}
+                          </Badge>
+                          <Badge
+                            variant="outline"
+                            className={cn('text-[10px]',
+                              a.priority === 'high'
+                                ? 'text-rose-600 dark:text-rose-400 border-rose-300/60 dark:border-rose-800/40'
+                                : a.priority === 'medium'
+                                  ? 'text-yellow-700 dark:text-yellow-400 border-yellow-300/60 dark:border-yellow-800/40'
+                                  : 'text-primary border-primary/30'
+                            )}
+                          >
+                            {a.priority === 'high' ? 'Высокий' : a.priority === 'medium' ? 'Средний' : 'Низкий'}
+                          </Badge>
+                        </div>
+                        {a.facts[0] ? (
+                          <p className="text-xs text-muted-foreground mt-1.5">{a.facts[0]}</p>
+                        ) : null}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </CollapsibleSection>
+            </section>
+
           </div>
         )}
       </div>

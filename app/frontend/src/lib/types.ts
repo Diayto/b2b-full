@@ -106,6 +106,8 @@ export interface Manager {
 // --- Leads ---
 export type LeadStatus = 'new' | 'qualified' | 'converted' | 'lost';
 
+export type SourceType = 'organic' | 'paid' | 'referral' | 'outbound' | 'direct' | 'unknown';
+
 export interface Lead {
   id: string;
   companyId: string;
@@ -117,11 +119,13 @@ export interface Lead {
   managerExternalId?: string;
   createdDate?: string; // YYYY-MM-DD
   status?: LeadStatus;
+  sourceType?: SourceType;
   uploadId?: string;
 }
 
 // --- Deals ---
 export type DealStatus = 'open' | 'won' | 'lost';
+export type LostReason = 'price' | 'no_response' | 'not_relevant' | 'competitor' | 'timing' | 'other';
 
 export interface Deal {
   id: string;
@@ -136,6 +140,15 @@ export interface Deal {
   lastActivityDate?: string; // YYYY-MM-DD
   status?: DealStatus;
   wonDate?: string; // YYYY-MM-DD
+  // Lost deal tracking
+  lostDate?: string; // YYYY-MM-DD
+  lostReason?: LostReason;
+  lostStage?: string; // funnel stage where the deal was lost
+  // Stalled pipeline metadata
+  stalledReason?: string;
+  lastContactDate?: string; // YYYY-MM-DD
+  noResponseDays?: number;
+  sourceType?: SourceType;
   uploadId?: string;
 }
 
@@ -180,7 +193,8 @@ export type FileType =
   | 'deals'
   | 'payments'
   | 'channels_campaigns'
-  | 'managers';
+  | 'managers'
+  | 'content_metrics';
 export type UploadStatus = 'pending' | 'processing' | 'completed' | 'error';
 
 export interface Upload {
@@ -396,6 +410,9 @@ export interface ParsedDealRow {
   lastActivityDate?: string;
   status?: DealStatus;
   wonDate?: string;
+  lostDate?: string;
+  lostReason?: LostReason;
+  lostStage?: string;
 }
 
 export interface ParsedPaymentRow {
@@ -403,6 +420,27 @@ export interface ParsedPaymentRow {
   invoiceExternalId?: string;
   paymentDate?: string; // YYYY-MM-DD
   amount: number;
+}
+
+export type ContentPlatform = 'instagram' | 'tiktok' | 'facebook' | 'linkedin' | 'youtube' | 'telegram' | 'other';
+
+export interface ParsedContentMetricRow {
+  platform: ContentPlatform;
+  contentId: string;
+  contentTitle?: string;
+  publishedAt: string;
+  impressions: number;
+  reach: number;
+  profileVisits: number;
+  likes: number;
+  comments: number;
+  saves: number;
+  shares: number;
+  inboundMessages: number;
+  leadsGenerated: number;
+  dealsGenerated: number;
+  paidConversions: number;
+  channelCampaignExternalId?: string;
 }
 
 // --- Date Range ---
