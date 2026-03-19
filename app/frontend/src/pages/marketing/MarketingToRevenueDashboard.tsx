@@ -30,16 +30,14 @@ import {
 import {
   calculateRevenueControlTowerAnalytics,
   computeSourcePerformance,
-  classifySources,
   computeContentPerformance,
-  explainROI,
   isDateInRangeInclusive,
 } from '@/lib/analytics';
 import { formatKZT } from '@/lib/metrics';
 import type { RevenueControlTowerAnalytics } from '@/lib/analytics/revenueControlTower';
 import RecommendationsCard from '@/components/RecommendationsCard';
 import { buildRecommendations } from '@/lib/recommendations';
-import { AlertTriangle, ArrowRight, TrendingDown, TrendingUp } from 'lucide-react';
+import { AlertTriangle, ArrowRight } from 'lucide-react';
 
 function percentFromRatio(r: number): string {
   if (!Number.isFinite(r)) return '—';
@@ -53,6 +51,25 @@ function moneyOrDash(value: number): string {
 
 function calculationBadge(mode: 'exact' | 'fallback' | undefined): string | null {
   return mode === 'fallback' ? 'по неполным связям' : null;
+}
+
+function platformLabel(platform: string): string {
+  switch (platform) {
+    case 'instagram':
+      return 'Instagram';
+    case 'tiktok':
+      return 'TikTok';
+    case 'facebook':
+      return 'Facebook';
+    case 'linkedin':
+      return 'LinkedIn';
+    case 'youtube':
+      return 'YouTube';
+    case 'telegram':
+      return 'Telegram';
+    default:
+      return platform;
+  }
 }
 
 function getDateRangeFromSelection(params: {
@@ -201,10 +218,6 @@ export default function MarketingToRevenueDashboard() {
     () => computeSourcePerformance(analytics.paidRevenueBySource.rows, channelNameById),
     [analytics.paidRevenueBySource.rows, channelNameById],
   );
-  const { best: bestSources, worst: worstSources } = useMemo(
-    () => classifySources(sourcePerformanceRows),
-    [sourcePerformanceRows],
-  );
   const contentInRange = useMemo(
     () => contentMetrics.filter((cm) => isDateInRangeInclusive(cm.publishedAt, analyticsRange)),
     [contentMetrics, analyticsRange],
@@ -255,6 +268,12 @@ export default function MarketingToRevenueDashboard() {
     };
   }, [contentInRange]);
 
+  const contentById = useMemo(() => {
+    const m = new Map<string, (typeof contentInRange)[number]>();
+    for (const cm of contentInRange) m.set(cm.contentId, cm);
+    return m;
+  }, [contentInRange]);
+
   const recommendationItems = useMemo(
     () =>
       buildRecommendations({
@@ -303,6 +322,20 @@ export default function MarketingToRevenueDashboard() {
       .sort((a, b) => (b.roi ?? -999) - (a.roi ?? -999));
   }, [sourcePerformanceRows]);
 
+  const hasCostData = channelTableData.some((c) => c.cost > 0);
+  const roiUnavailableCount = channelTableData.filter((c) => c.roi === null).length;
+  const hasAttributionIssue = analytics.paidRevenueBySource.unattributedPaidRevenue > 0;
+
+  const organicMissingHint = (() => {
+    if (organicTotals.reach > 0 && organicTotals.engagement === 0) return 'Reach есть, engagement не виден в отчёте';
+    if (organicTotals.engagement > 0 && organicTotals.profileVisits === 0) return 'Интерес есть, но нет данных по визитам профиля';
+    if (organicTotals.profileVisits > 0 && organicTotals.inboundMessages === 0) return 'Визиты есть, но DMs/сообщений нет (или они не загружены)';
+    if (organicTotals.inboundMessages > 0 && organicTotals.leadsGenerated === 0) return 'Сообщения есть, но лидов в данных нет';
+    if (organicTotals.leadsGenerated > 0 && organicTotals.dealsGenerated === 0) return 'Лиды есть, но сделок в данных нет';
+    if (organicTotals.dealsGenerated > 0 && organicTotals.paidConversions === 0) return 'Сделки есть, но paid-конверсий в данных нет';
+    return null;
+  })();
+
   return (
     <div className="rct-page p-4 lg:p-6 max-w-[1400px] mx-auto space-y-6">
       {/* Header */}
@@ -344,49 +377,6 @@ export default function MarketingToRevenueDashboard() {
 
       {hasCoreData && (
         <>
-          {/* KPI row */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <ControlTowerKpiCard
-              title="CPL"
-              value={analytics.cpl.value > 0 ? moneyOrDash(analytics.cpl.value) : '—'}
-              subtitle={calculationBadge(analytics.cpl.calculationMode) ?? 'стоимость лида'}
-              status={analytics.cpl.calculationMode === 'fallback' || analytics.cpl.value > 20000 ? 'warning' : 'success'}
-              detail={{
-                what: 'Стоимость привлечения одного лида',
-                why: 'Чем ниже CPL при сохранении качества — тем дешевле вход в воронку.',
-              }}
-            />
-            <ControlTowerKpiCard
-              title="CAC"
-              value={analytics.cac.value > 0 ? moneyOrDash(analytics.cac.value) : '—'}
-              subtitle={calculationBadge(analytics.cac.calculationMode) ?? 'стоимость клиента'}
-              status={analytics.cac.calculationMode === 'fallback' || analytics.cac.value > 400000 ? 'warning' : 'success'}
-              detail={{
-                what: 'Сколько стоит привлечение одного нового клиента',
-                why: 'Главный рычаг для маркетингового бюджета.',
-              }}
-            />
-            <ControlTowerKpiCard
-              title="Цена won-сделки"
-              value={analytics.costPerWonDeal.value > 0 ? moneyOrDash(analytics.costPerWonDeal.value) : '—'}
-              subtitle={calculationBadge(analytics.costPerWonDeal.calculationMode) ?? 'маркетинг / won deals'}
-              status={analytics.costPerWonDeal.calculationMode === 'fallback' || analytics.costPerWonDeal.value > 900000 ? 'warning' : 'success'}
-              detail={{
-                what: 'Маркетинговые расходы на одну выигранную сделку',
-                why: 'Связывает маркетинг с реальными продажами.',
-              }}
-            />
-            <ControlTowerKpiCard
-              title="Bottleneck"
-              value={bottleneck.label}
-              subtitle={`провал ${percentFromRatio(bottleneck.v)}`}
-              status="danger"
-              detail={{
-                what: `Больше всего теряется на шаге: ${bottleneck.label}`,
-                why: 'Устранение bottleneck даёт самый быстрый рост конверсии в деньги.',
-              }}
-            />
-          </div>
 
           {/* ============================================= */}
           {/* ORGANIC FUNNEL (content_metrics input)      */}
@@ -401,8 +391,8 @@ export default function MarketingToRevenueDashboard() {
 
             <div className="rct-card-inset p-4 border-dashed">
               <p className="text-sm text-muted-foreground">
-                Подключение Meta Graph API сейчас не настроено. Для органики используйте <strong>ручной импорт</strong> файла{' '}
-                <strong>content_metrics</strong> (поля: reach, engagement/likes, DMs, leads, deals, paid conversions). В будущем подключим прямую выгрузку Meta.
+                Сейчас Meta Graph API не подключен. Для Instagram / TikTok / соцсетей используйте <strong>ручной импорт</strong> файла{' '}
+                <strong>content_metrics</strong> (reach, engagement, DMs, leads, deals, paid conversions). Это текущий поддерживаемый поток для органики.
               </p>
             </div>
 
@@ -532,6 +522,62 @@ export default function MarketingToRevenueDashboard() {
             )}
           </section>
 
+          {/* KPI row */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <ControlTowerKpiCard
+              title="CPL"
+              value={analytics.cpl.value > 0 ? moneyOrDash(analytics.cpl.value) : '—'}
+              subtitle={
+                !hasCostData
+                  ? 'Органика / без прямых затрат'
+                  : calculationBadge(analytics.cpl.calculationMode) ?? 'стоимость лида'
+              }
+              status={!hasCostData ? 'default' : analytics.cpl.calculationMode === 'fallback' || analytics.cpl.value > 20000 ? 'warning' : 'success'}
+              detail={{
+                what: 'Стоимость привлечения одного лида',
+                why: 'Чем ниже CPL при сохранении качества — тем дешевле вход в воронку.',
+              }}
+            />
+            <ControlTowerKpiCard
+              title="CAC"
+              value={analytics.cac.value > 0 ? moneyOrDash(analytics.cac.value) : '—'}
+              subtitle={
+                !hasCostData
+                  ? 'Органика / без прямых затрат'
+                  : calculationBadge(analytics.cac.calculationMode) ?? 'стоимость клиента'
+              }
+              status={!hasCostData ? 'default' : analytics.cac.calculationMode === 'fallback' || analytics.cac.value > 400000 ? 'warning' : 'success'}
+              detail={{
+                what: 'Сколько стоит привлечение одного нового клиента',
+                why: 'Главный рычаг для маркетингового бюджета.',
+              }}
+            />
+            <ControlTowerKpiCard
+              title="Цена won-сделки"
+              value={analytics.costPerWonDeal.value > 0 ? moneyOrDash(analytics.costPerWonDeal.value) : '—'}
+              subtitle={
+                !hasCostData
+                  ? 'Органика / без прямых затрат'
+                  : calculationBadge(analytics.costPerWonDeal.calculationMode) ?? 'маркетинг / won deals'
+              }
+              status={!hasCostData ? 'default' : analytics.costPerWonDeal.calculationMode === 'fallback' || analytics.costPerWonDeal.value > 900000 ? 'warning' : 'success'}
+              detail={{
+                what: 'Маркетинговые расходы на одну выигранную сделку',
+                why: 'Связывает маркетинг с реальными продажами.',
+              }}
+            />
+            <ControlTowerKpiCard
+              title="Bottleneck"
+              value={bottleneck.label}
+              subtitle={`провал ${percentFromRatio(bottleneck.v)}`}
+              status="danger"
+              detail={{
+                what: `Больше всего теряется на шаге: ${bottleneck.label}`,
+                why: 'Устранение bottleneck даёт самый быстрый рост конверсии в деньги.',
+              }}
+            />
+          </div>
+
           {/* ============================================= */}
           {/* LAYER A: ORGANIC / SOCIAL FUNNEL              */}
           {/* ============================================= */}
@@ -543,7 +589,7 @@ export default function MarketingToRevenueDashboard() {
               </Badge>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 lg:grid-cols-1 gap-5">
               {/* Full funnel with conversion rates */}
               <div className="rct-card rct-card-padding">
                 <SectionHeader title="Сквозная воронка" size="sm" description="Конверсии между каждым шагом" />
@@ -567,70 +613,6 @@ export default function MarketingToRevenueDashboard() {
                   })()}
                 </div>
               </div>
-
-              {/* Drop-off analysis */}
-              <div className="rct-card rct-card-padding">
-                <SectionHeader title="Точки потерь" size="sm" description="Где теряются потенциальные клиенты" />
-                <div className="mt-4 space-y-3">
-                  {[
-                    {
-                      label: 'Лид → Сделка',
-                      dropOff: analytics.funnelDropOff.dropOffLeadToDeal,
-                      lost: analytics.funnelDropOff.leads - analytics.funnelDropOff.deals,
-                      rate: analytics.funnelDropOff.leadToDealRate,
-                      isCritical: analytics.insightSignals.funnelBottleneckStage === 'lead_to_deal',
-                    },
-                    {
-                      label: 'Сделка → Выигранная',
-                      dropOff: analytics.funnelDropOff.dropOffDealToWon,
-                      lost: analytics.funnelDropOff.deals - analytics.funnelDropOff.wonDeals,
-                      rate: analytics.funnelDropOff.dealToWonRate,
-                      isCritical: analytics.insightSignals.funnelBottleneckStage === 'deal_to_won',
-                    },
-                    {
-                      label: 'Выигранная → Оплата',
-                      dropOff: analytics.funnelDropOff.dropOffWonToPaid,
-                      lost: analytics.funnelDropOff.wonDeals - analytics.funnelDropOff.paidWonDeals,
-                      rate: analytics.funnelDropOff.wonToPaidRate,
-                      isCritical: analytics.insightSignals.funnelBottleneckStage === 'won_to_paid',
-                    },
-                  ].map((step) => (
-                    <div
-                      key={step.label}
-                      className={cn(
-                        'rct-card-inset p-3',
-                        step.isCritical && 'ring-1 ring-rose-300/60 dark:ring-rose-800/40',
-                      )}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                          {step.isCritical && <AlertTriangle className="h-3.5 w-3.5 text-rose-500 shrink-0" />}
-                          <span className="text-sm font-medium text-foreground">{step.label}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">потеряно: {step.lost}</span>
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              'text-xs',
-                              step.isCritical
-                                ? 'text-rose-600 dark:text-rose-400 border-rose-300/60'
-                                : 'text-muted-foreground',
-                            )}
-                          >
-                            {percentFromRatio(step.dropOff)} drop
-                          </Badge>
-                        </div>
-                      </div>
-                      {step.isCritical && (
-                        <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-1.5">
-                          Главная точка потерь — требует приоритетного внимания
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
             </div>
           </section>
 
@@ -644,7 +626,9 @@ export default function MarketingToRevenueDashboard() {
             </div>
 
             {channelTableData.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Недостаточно данных для анализа каналов.</p>
+              <p className="text-sm text-muted-foreground">
+                Для каналов в выбранном периоде недостаточно связей до оплаченных сделок. Органика и публикации — сверху.
+              </p>
             ) : (
               <div className="rct-card overflow-hidden">
                 <div className="overflow-x-auto">
@@ -654,15 +638,16 @@ export default function MarketingToRevenueDashboard() {
                         <th className="text-left px-4 py-3 font-medium text-muted-foreground text-xs">Канал</th>
                         <th className="text-right px-4 py-3 font-medium text-muted-foreground text-xs">Расход</th>
                         <th className="text-right px-4 py-3 font-medium text-muted-foreground text-xs">Лиды</th>
-                        <th className="text-right px-4 py-3 font-medium text-muted-foreground text-xs">Конверсия</th>
+                        <th className="text-right px-4 py-3 font-medium text-muted-foreground text-xs">Конверсии</th>
                         <th className="text-right px-4 py-3 font-medium text-muted-foreground text-xs">Выручка</th>
-                        <th className="text-right px-4 py-3 font-medium text-muted-foreground text-xs">ROI</th>
+                        <th className="text-right px-4 py-3 font-medium text-muted-foreground text-xs">ROI / расход</th>
                       </tr>
                     </thead>
                     <tbody>
                       {channelTableData.map((ch) => {
                         const roiPositive = ch.roi !== null && ch.roi > 0;
                         const roiNegative = ch.roi !== null && ch.roi < 0;
+                        const hasNoSpend = ch.cost <= 0;
                         return (
                           <tr key={ch.id} className="border-b border-border/30 hover:bg-muted/20 transition-colors">
                             <td className="px-4 py-3">
@@ -671,12 +656,23 @@ export default function MarketingToRevenueDashboard() {
                             <td className="px-4 py-3 text-right text-muted-foreground">{moneyOrDash(ch.cost)}</td>
                             <td className="px-4 py-3 text-right text-foreground font-medium">{ch.leads}</td>
                             <td className="px-4 py-3 text-right">
-                              <span className={cn(
-                                'text-sm',
-                                ch.convRate >= 20 ? 'text-teal-600 dark:text-teal-400' : ch.convRate >= 10 ? 'text-foreground' : 'text-rose-600 dark:text-rose-400',
-                              )}>
-                                {ch.convRate.toFixed(1)}%
-                              </span>
+                              <div className="space-y-1">
+                                <div className="text-sm text-muted-foreground">
+                                  L→D: {percentFromRatio(ch.leadToDeal)}
+                                </div>
+                                <div
+                                  className={cn(
+                                    'text-sm font-medium',
+                                    ch.dealToPaid >= 0.2
+                                      ? 'text-teal-600 dark:text-teal-400'
+                                      : ch.dealToPaid >= 0.1
+                                        ? 'text-foreground'
+                                        : 'text-rose-600 dark:text-rose-400',
+                                  )}
+                                >
+                                  D→P: {percentFromRatio(ch.dealToPaid)}
+                                </div>
+                              </div>
                             </td>
                             <td className="px-4 py-3 text-right font-semibold text-foreground">{moneyOrDash(ch.revenue)}</td>
                             <td className="px-4 py-3 text-right">
@@ -692,7 +688,15 @@ export default function MarketingToRevenueDashboard() {
                                   {ch.roi > 0 ? '+' : ''}{ch.roi.toFixed(0)}%
                                 </Badge>
                               ) : (
-                                <span className="text-xs text-muted-foreground">—</span>
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    'text-xs',
+                                    hasNoSpend ? 'text-muted-foreground border-muted-foreground/25' : 'text-muted-foreground',
+                                  )}
+                                >
+                                  {hasNoSpend ? 'ROI недоступен: нет расхода' : 'ROI недоступен'}
+                                </Badge>
                               )}
                             </td>
                           </tr>
@@ -702,13 +706,6 @@ export default function MarketingToRevenueDashboard() {
                   </table>
                 </div>
 
-                {analytics.paidRevenueBySource.unattributedPaidRevenue > 0 && (
-                  <div className="px-4 py-2 bg-rose-50/30 dark:bg-rose-950/10 border-t">
-                    <p className="text-xs text-rose-600 dark:text-rose-400">
-                      Не размечено: {moneyOrDash(analytics.paidRevenueBySource.unattributedPaidRevenue)} — проверьте цепочку атрибуции
-                    </p>
-                  </div>
-                )}
               </div>
             )}
           </section>
@@ -738,30 +735,76 @@ export default function MarketingToRevenueDashboard() {
             )}
             {hasOrganicInRange && (
               <div className="rct-card rct-card-padding mb-5">
-                <SectionHeader title="Контент / органика" size="sm" description="Топ и слабые публикации по вовлечению" />
+                <SectionHeader title="Контент / органика" size="sm" description="Какие посты дают лиды, а какие их почти не приносят" />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground mb-2">Лучший контент</p>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">Что работает (с лид-эффектом)</p>
                     <div className="space-y-2">
                       {contentPerformance.topPerforming.slice(0, 3).map((c) => (
-                        <div key={c.contentId} className="rct-card-inset p-3 flex justify-between items-center">
-                          <span className="text-sm truncate max-w-[180px]">{c.contentTitle || c.contentId}</span>
-                          <Badge variant="outline" className="text-[10px] shrink-0">
-                            {(c.engagementRate * 100).toFixed(1)}% ER
-                          </Badge>
+                        <div key={c.contentId} className="rct-card-inset p-3 flex justify-between items-start gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-foreground whitespace-normal break-words">
+                              {c.contentTitle || c.contentId}
+                            </p>
+                            <div className="flex gap-2 flex-wrap mt-1">
+                              <Badge variant="outline" className="text-[10px]">
+                                {platformLabel(c.platform)}
+                              </Badge>
+                              <Badge variant="secondary" className="text-[10px]">
+                                Reach: {contentById.get(c.contentId)?.reach ?? '—'}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-2">
+                              ER {(c.engagementRate * 100).toFixed(1)}% · Leads: {c.leadsGenerated}
+                            </p>
+                          </div>
+
+                          <div className="shrink-0 text-right">
+                            <Badge
+                              variant="outline"
+                              className={
+                                c.leadsGenerated > 0 ? 'text-teal-600 dark:text-teal-400 border-teal-300/60' : 'text-muted-foreground border-muted-foreground/30'
+                              }
+                            >
+                              {c.leadsGenerated > 0 ? 'Сильный' : 'Средний'}
+                            </Badge>
+                          </div>
                         </div>
                       ))}
                     </div>
                   </div>
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground mb-2">Слабый контент</p>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">Что не работает (почти без лидов)</p>
                     <div className="space-y-2">
                       {contentPerformance.worstPerforming.slice(0, 3).map((c) => (
-                        <div key={c.contentId} className="rct-card-inset p-3 flex justify-between items-center">
-                          <span className="text-sm truncate max-w-[180px]">{c.contentTitle || c.contentId}</span>
-                          <Badge variant="outline" className="text-[10px] text-rose-600 shrink-0">
-                            {(c.engagementRate * 100).toFixed(1)}% ER
-                          </Badge>
+                        <div key={c.contentId} className="rct-card-inset p-3 flex justify-between items-start gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-foreground whitespace-normal break-words">
+                              {c.contentTitle || c.contentId}
+                            </p>
+                            <div className="flex gap-2 flex-wrap mt-1">
+                              <Badge variant="outline" className="text-[10px]">
+                                {platformLabel(c.platform)}
+                              </Badge>
+                              <Badge variant="secondary" className="text-[10px]">
+                                Reach: {contentById.get(c.contentId)?.reach ?? '—'}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-2">
+                              ER {(c.engagementRate * 100).toFixed(1)}% · Leads: {c.leadsGenerated}
+                            </p>
+                          </div>
+
+                          <div className="shrink-0 text-right">
+                            <Badge
+                              variant="outline"
+                              className={
+                                c.leadsGenerated > 0 ? 'text-muted-foreground border-muted-foreground/30' : 'text-rose-600 dark:text-rose-400 border-rose-300/60'
+                              }
+                            >
+                              {c.leadsGenerated > 0 ? 'Средний' : 'Слабый'}
+                            </Badge>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -773,7 +816,7 @@ export default function MarketingToRevenueDashboard() {
                     <div className="flex flex-wrap gap-2">
                       {contentPerformance.byPlatform.slice(0, 5).map((p) => (
                         <Badge key={p.platform} variant="secondary" className="text-xs">
-                          {p.label}: {p.contentCount} постов, {p.totalLeads} лидов
+                          {p.label}: {p.contentCount} постов · Reach {p.totalReach} · Лиды {p.totalLeads}
                         </Badge>
                       ))}
                     </div>
@@ -782,80 +825,47 @@ export default function MarketingToRevenueDashboard() {
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {/* Best performing sources */}
-              <div className="rct-card rct-card-padding">
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  <div className="flex items-center gap-2">
-                    <TrendingUp className="h-4 w-4 text-teal-500" />
-                    <SectionHeader title="Лучшие источники" size="sm" />
+            <div className="rct-card rct-card-padding mb-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-rose-500" />
+                  <div>
+                    <p className="text-base font-semibold text-foreground">Почему производительность слабая</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Коротко: где теряется конверсия и какие данные сейчас отсутствуют.
+                    </p>
                   </div>
-                  <Badge variant="secondary" className="text-xs text-teal-700 dark:text-teal-400">топ</Badge>
                 </div>
-                {bestSources.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Нет данных.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {bestSources.map((s, idx) => (
-                      <div key={s.id} className="rct-card-inset p-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-foreground truncate">
-                              {idx + 1}. {s.name}
-                            </p>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {s.leads} лидов · {percentFromRatio(s.leadToDealRate)} лид→сделка
-                            </p>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <p className="text-sm font-bold text-teal-600 dark:text-teal-400">{moneyOrDash(s.revenue)}</p>
-                            {s.roi !== null && (
-                              <p className="text-[11px] text-muted-foreground">ROI: {s.roi.toFixed(0)}%</p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+
+                <Badge variant="outline" className="text-xs shrink-0">
+                  {!hasCostData ? 'ROI недоступен (нет расхода)' : roiUnavailableCount > 0 ? 'ROI частично' : 'ROI доступен'}
+                </Badge>
               </div>
 
-              {/* Worst performing sources */}
-              <div className="rct-card rct-card-padding">
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  <div className="flex items-center gap-2">
-                    <TrendingDown className="h-4 w-4 text-rose-500" />
-                    <SectionHeader title="Слабые источники" size="sm" />
-                  </div>
-                  <Badge variant="secondary" className="text-xs text-rose-600 dark:text-rose-400">внимание</Badge>
+              <div className="mt-4 space-y-2">
+                <div className="text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground">Точка потерь:</span> {bottleneck.label} · drop {percentFromRatio(bottleneck.v)}
                 </div>
-                {worstSources.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Нет данных.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {worstSources.map((s, idx) => (
-                      <div key={s.id} className="rct-card-inset p-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-foreground truncate">
-                              {idx + 1}. {s.name}
-                            </p>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {s.leads} лидов · {percentFromRatio(s.dealToPaidRate)} сделка→оплата
-                            </p>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <p className="text-sm font-medium text-rose-600 dark:text-rose-400">{moneyOrDash(s.revenue)}</p>
-                            {s.roi !== null && (
-                              <p className="text-[11px] text-muted-foreground">ROI: {s.roi.toFixed(0)}%</p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <div className="text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground">Органика:</span>{' '}
+                  {organicMissingHint ??
+                    (organicTotals.leadsGenerated > 0
+                      ? 'По content_metrics лиды и сделки присутствуют — проверяйте конверсию дальше.'
+                      : 'В отчёте нет достаточных полей, чтобы посчитать полный путь Reach → Paid без подстановок.')}
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground">Атрибуция paid:</span>{' '}
+                  {hasAttributionIssue
+                    ? `есть неразмечено: ${moneyOrDash(analytics.paidRevenueBySource.unattributedPaidRevenue)}`
+                    : 'цепочка атрибуции в целом размечена'}
+                </div>
               </div>
+
+              {!hasCostData && (
+                <p className="text-xs text-muted-foreground mt-3">
+                  Если расхода нет, оценивайте каналы по конверсиям L→D и D→P, а не по ROI.
+                </p>
+              )}
             </div>
 
             {/* Funnel by channel - detailed collapsible */}
