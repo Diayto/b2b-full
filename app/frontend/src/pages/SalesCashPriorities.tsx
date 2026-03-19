@@ -8,7 +8,6 @@ import AppLayout from '@/components/AppLayout';
 import ControlTowerKpiCard from '@/components/controltower/ControlTowerKpiCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import MetricHelpIcon from '@/components/controltower/MetricHelpIcon';
 import SectionHeader from '@/components/controltower/SectionHeader';
@@ -629,7 +628,7 @@ export default function SalesCashPrioritiesPage() {
 
   return (
     <AppLayout>
-      <div className="rct-page p-4 lg:p-6 space-y-6 max-w-[1400px] mx-auto">
+      <div className="chrona-page">
         {/* Header */}
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
@@ -708,16 +707,18 @@ export default function SalesCashPrioritiesPage() {
             </div>
 
             {/* Lower Funnel + Leakage */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card className="rct-card">
-                <CardHeader>
-                  <CardTitle className="text-base font-semibold text-foreground">Нижняя воронка: Сделка → Оплата</CardTitle>
-                  <CardDescription>Здоровье цепочки перед оплатой (см. таблицу ниже)</CardDescription>
-                </CardHeader>
-                <CardContent>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              <div className="chrona-surface">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="chrona-section-title">Нижняя воронка: Сделка → Оплата</h3>
+                    <p className="text-sm text-muted-foreground mt-1">Здоровье цепочки перед оплатой</p>
+                  </div>
+                </div>
+                <div className="mt-4">
                   {lowerFunnelStageData.won > 0 && lowerFunnelStageData.invoiced < lowerFunnelStageData.won * 0.5 && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400 mb-3 rct-card-inset p-2.5">
-                      Частичные данные: часть выигранных сделок не связана со счетами. Загрузите счета с dealExternalId для полной воронки.
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mb-3 chrona-muted-surface">
+                      Частичные данные: часть выигранных сделок не связана со счетами. Добавьте в загрузку связку «сделка ↔ счёт», чтобы воронка стала полной.
                     </p>
                   )}
                   <div className="space-y-3">
@@ -730,7 +731,7 @@ export default function SalesCashPrioritiesPage() {
                       const prev = i > 0 ? arr[i - 1].val : s.val;
                       const rate = prev > 0 ? ((s.val / prev) * 100).toFixed(1) : '—';
                       return (
-                        <div key={s.label} className="flex items-center justify-between gap-3 rct-card-inset p-3">
+                        <div key={s.label} className="flex items-center justify-between gap-3 chrona-muted-surface">
                           <span className="text-sm font-medium text-foreground">{s.label}</span>
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-bold">{s.val}</span>
@@ -745,17 +746,17 @@ export default function SalesCashPrioritiesPage() {
                       Частичные данные: связь счёт→сделка или оплата→сделка неполная. Показатели могут быть приблизительными.
                     </p>
                   )}
-                </CardContent>
-              </Card>
-              <Card className="rct-card border-l-[3px] border-l-amber-400/70">
-                <CardHeader>
-                  <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
+                </div>
+              </div>
+              <div className="chrona-surface border-l-[3px] border-l-amber-400/70">
+                <div className="flex items-start justify-between gap-3">
+                  <h3 className="chrona-section-title flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4 text-amber-500" />
                     Утечки в воронке
-                  </CardTitle>
-                  <CardDescription>Куда “протекает” выручка в периоде</CardDescription>
-                </CardHeader>
-                <CardContent>
+                  </h3>
+                </div>
+                <p className="text-sm text-muted-foreground mt-1">Куда уходит выручка в выбранном периоде</p>
+                <div className="mt-4">
                   {leakage.totalItems === 0 ? (
                     <p className="text-sm text-muted-foreground">Утечек не обнаружено — воронка в норме.</p>
                   ) : (
@@ -771,7 +772,7 @@ export default function SalesCashPrioritiesPage() {
                             {top.map((c) => {
                               const w = Math.round((c.estimatedLoss / maxLoss) * 100);
                               return (
-                                <div key={c.category} className="rct-card-inset p-2.5">
+                                <div key={c.category} className="chrona-muted-surface">
                                   <div className="flex items-center justify-between gap-3">
                                     <span className="text-xs font-medium text-foreground">{c.label}</span>
                                     <div className="flex items-center gap-2">
@@ -793,32 +794,35 @@ export default function SalesCashPrioritiesPage() {
                       })()}
                     </div>
                   )}
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             </div>
 
             {/* Main grid */}
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
               {/* Left: Deals + Invoices */}
-              <div className="space-y-6 xl:col-span-2">
+              <div className="space-y-5 xl:col-span-2">
                 {/* Unified leakage command table */}
-                <Card className="rct-card border-l-[4px] border-l-rose-400/70">
-                  <CardHeader>
-                    <CardTitle className="text-lg font-semibold text-foreground flex items-center gap-2">
+                <div className="chrona-hero border-l-[4px] border-l-rose-400/70">
+                  <div className="flex items-start justify-between gap-3">
+                    <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4 text-rose-500" />
                       Почему деньги не доходят до оплаты
-                    </CardTitle>
-                    <CardDescription className="text-muted-foreground">
+                    </h2>
+                    <Badge variant="outline" className="text-xs shrink-0">
+                      {moneyLeakageRows.length} точек риска
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-1">
                       Главная рабочая поверхность: место риска, причина, ответственный и следующий шаг.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
+                  </p>
+                  <div className="mt-4">
                     {moneyLeakageRows.length === 0 ? (
                       <p className="text-sm text-muted-foreground">В выбранном периоде не найдено заметных точек риска.</p>
                     ) : (
                       <>
                         {/* Compact reason breakdown (derived from unified leakage model) */}
-                        <div className="rct-card-inset p-3.5 mb-4">
+                        <div className="chrona-muted-surface mb-4">
                           <div className="flex items-start justify-between gap-3">
                             <div>
                               <p className="text-sm font-semibold text-foreground">Почему деньги “не доходят”</p>
@@ -857,10 +861,10 @@ export default function SalesCashPrioritiesPage() {
                           </div>
                         </div>
 
-                        <div className="overflow-x-auto border rounded-lg">
-                          <table className="w-full text-xs">
+                        <div className="chrona-table">
+                          <table className="text-xs">
                             <thead>
-                              <tr className="border-b bg-muted/30">
+                              <tr>
                                 <th className="text-left px-3 py-2 font-medium text-muted-foreground">Сущность</th>
                                 <th className="text-left px-3 py-2 font-medium text-muted-foreground">Проблема (стадия)</th>
                                 <th className="text-left px-3 py-2 font-medium text-muted-foreground">Причина</th>
@@ -872,7 +876,7 @@ export default function SalesCashPrioritiesPage() {
                             </thead>
                             <tbody>
                               {moneyLeakageRows.slice(0, 15).map((r) => (
-                                <tr key={r.id} className="border-b border-border/30 hover:bg-muted/20 align-top">
+                                <tr key={r.id} className="align-top">
                                   <td className="px-3 py-2">
                                     <div className="font-medium text-foreground max-w-[160px] whitespace-normal break-words">
                                       {r.entityType === 'deal'
@@ -920,23 +924,23 @@ export default function SalesCashPrioritiesPage() {
                         </p>
                       </>
                     )}
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
 
                 {/* ============================================= */}
                 {/* LOST DEALS ANALYSIS                             */}
                 {/* ============================================= */}
-                <Card className="rct-card border-l-[3px] border-l-rose-400/70">
-                  <CardHeader>
-                    <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
+                <div className="chrona-surface border-l-[3px] border-l-rose-400/70">
+                  <div className="flex items-start justify-between gap-3">
+                    <h3 className="chrona-section-title flex items-center gap-2">
                       <XCircle className="h-4 w-4 text-rose-500" />
                       Анализ потерянных сделок
-                    </CardTitle>
-                    <CardDescription className="text-muted-foreground">
+                    </h3>
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-1">
                       Почему клиенты уходят: причины, стадии и ответственные.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
+                  </p>
+                  <div className="mt-4">
                     {lostDealsAnalysis.total === 0 ? (
                       <p className="text-sm text-muted-foreground">Нет потерянных сделок в периоде — отлично!</p>
                     ) : (
@@ -946,10 +950,10 @@ export default function SalesCashPrioritiesPage() {
                           <p className="text-sm font-semibold text-foreground mb-2">
                             Топ потерянных сделок (lost)
                           </p>
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-xs">
+                          <div className="chrona-table">
+                            <table className="text-xs">
                               <thead>
-                                <tr className="border-b bg-muted/30">
+                                <tr>
                                   <th className="text-left px-3 py-2 font-medium text-muted-foreground">Сделка</th>
                                   <th className="text-left px-3 py-2 font-medium text-muted-foreground">Клиент</th>
                                   <th className="text-left px-3 py-2 font-medium text-muted-foreground">Стадия</th>
@@ -960,7 +964,7 @@ export default function SalesCashPrioritiesPage() {
                               </thead>
                               <tbody>
                                 {lostDealsAnalysis.deals.slice(0, 8).map((d) => (
-                                  <tr key={d.dealExternalId} className="border-b border-border/30 hover:bg-muted/20">
+                                  <tr key={d.dealExternalId}>
                                     <td className="px-3 py-2 font-medium text-foreground truncate max-w-[120px]">{d.dealExternalId}</td>
                                     <td className="px-3 py-2 text-muted-foreground truncate max-w-[120px]">{d.customerExternalId}</td>
                                     <td className="px-3 py-2">
@@ -991,29 +995,29 @@ export default function SalesCashPrioritiesPage() {
                         </div>
                       </div>
                     )}
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
 
                 {/* (уплотнение) stalled / invoices / delayed вынесены в единую таблицу риска */}
               </div>
 
               {/* Right column */}
-              <div className="space-y-6">
+              <div className="space-y-5">
                 {/* Top risks (diagnostics) */}
-                <Card className="rct-card">
-                  <CardHeader className="rct-card-padding pb-2">
-                    <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
+                <div className="chrona-surface">
+                  <div className="flex items-center gap-2">
+                    <h3 className="chrona-section-title flex items-center gap-2">
                       Топ рисков в оплате
                       <MetricHelpIcon helpKey="priority_actions" />
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
+                    </h3>
+                  </div>
+                  <div className="mt-3">
                     {moneyLeakageRows.length === 0 ? (
                       <p className="text-sm text-muted-foreground">Нет точек риска в выбранном периоде.</p>
                     ) : (
                       <div className="space-y-2">
                         {moneyLeakageRows.slice(0, 3).map((r) => (
-                          <div key={r.id} className="rct-card-inset p-2.5">
+                          <div key={r.id} className="chrona-muted-surface">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <p className="text-sm font-semibold text-foreground truncate">{r.problemStage}</p>
@@ -1031,8 +1035,8 @@ export default function SalesCashPrioritiesPage() {
                         ))}
                       </div>
                     )}
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
 
                 {/* Recommendations at bottom */}
                 <RecommendationsCard

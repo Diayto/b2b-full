@@ -119,7 +119,7 @@ export default function MarketingReports() {
     .slice(0, 4);
 
   const trustLabel =
-    completeness.overall >= 80 ? 'Точные данные' : completeness.overall >= 50 ? 'Частичные данные' : 'Неполные данные';
+    completeness.overall >= 80 ? 'Exact (точно)' : completeness.overall >= 50 ? 'Fallback (по неполным связям)' : 'Incomplete (неполно)';
   const trustClass =
     completeness.overall >= 80
       ? 'text-teal-600 dark:text-teal-400 border-teal-300/60'
@@ -128,11 +128,11 @@ export default function MarketingReports() {
         : 'text-rose-600 dark:text-rose-400 border-rose-300/60';
 
   return (
-    <div className="space-y-6">
+    <div className="chrona-page">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">Отчёты</h2>
-          <p className="text-slate-600 mt-1">
+          <h2 className="rct-page-title">Отчёты маркетинга</h2>
+          <p className="rct-body-micro text-muted-foreground mt-1">
             Отчётный слой: что в маркетинге работает, что слабо и чему можно доверять.
           </p>
         </div>
@@ -141,107 +141,100 @@ export default function MarketingReports() {
           <Button
             variant="outline"
             onClick={() => navigate('/marketing/data')}
-            className="border-slate-300 text-slate-700"
           >
             Открыть данные
           </Button>
-          <Button
-            onClick={() => navigate('/uploads')}
-            className="bg-[#1E3A5F] hover:bg-[#1E3A5F]/90 text-white px-6"
-          >
+          <Button onClick={() => navigate('/uploads')}>
             Перейти в Загрузки
           </Button>
         </div>
       </div>
 
       {!hasReportingData ? (
-        <Card className="border-dashed border-slate-300 bg-white">
+        <Card className="chrona-surface border-dashed">
           <CardHeader>
-            <CardTitle className="text-slate-900">Нет отчётов</CardTitle>
-            <CardDescription className="text-slate-600">
-              Загрузите маркетинговые данные (content_metrics, channels_campaigns, marketing_spend), чтобы сформировать отчёт.
+            <CardTitle>Нет отчётов</CardTitle>
+            <CardDescription>
+              Загрузите ключевые маркетинг-слои: контент/органика, источники/каналы и расходы.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <p className="text-slate-500 mb-6 max-w-md">
+            <p className="text-muted-foreground mb-6 max-w-md">
               Пока маркетинговые данные не загружены. Отчёты строятся на основе импортированных
               расходов и связанных бизнес-данных компании.
             </p>
-            <Button
-              onClick={() => navigate('/uploads')}
-              className="bg-[#1E3A5F] hover:bg-[#1E3A5F]/90 text-white px-6"
-            >
+            <Button onClick={() => navigate('/uploads')}>
               Перейти в Загрузки
             </Button>
           </CardContent>
         </Card>
       ) : (
         <>
-          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-            <Card className="bg-white">
+          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+            <Card className="chrona-surface">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-slate-600">Источники с результатом</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">Источники с результатом</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-slate-900">{sourceRows.length}</div>
-                <p className="text-xs text-slate-500 mt-1">Каналов со связями до выручки/лидов</p>
+                <div className="text-2xl font-bold text-foreground">{sourceRows.length}</div>
+                <p className="text-xs text-muted-foreground mt-1">Каналов со связями до выручки/лидов</p>
               </CardContent>
             </Card>
 
-            <Card className="bg-white">
+            <Card className="chrona-surface">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-slate-600">Контент / органика</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">Контент / органика</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-slate-900">{contentSummary.totalContent}</div>
-                <p className="text-xs text-slate-500 mt-1">
+                <div className="text-2xl font-bold text-foreground">{contentSummary.totalContent}</div>
+                <p className="text-xs text-muted-foreground mt-1">
                   {contentSummary.totalLeads > 0 ? `${contentSummary.totalLeads} лидов из контента` : 'Лиды из контента пока не размечены'}
                 </p>
               </CardContent>
             </Card>
 
-            <Card className="bg-white">
+            <Card className="chrona-surface">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-slate-600">Маркетинг → выручка</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">Маркетинг → выручка</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-slate-900">
+                <div className="text-2xl font-bold text-foreground">
                   {formatKZT(analytics.revenue.value)}
                 </div>
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   {hasSpend ? `Spend: ${formatKZT(totalSpend)}` : 'Органика / без прямых затрат'}
                 </p>
               </CardContent>
             </Card>
 
-            <Card className="bg-white">
+            <Card className="chrona-surface">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-slate-600">Доверие к отчёту</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">Доверие к отчёту</CardTitle>
               </CardHeader>
               <CardContent>
                 <Badge variant="outline" className={trustClass}>
                   {trustLabel}
                 </Badge>
-                <p className="text-xs text-slate-500 mt-2">Полнота маркетинг-данных: {completeness.overall}%</p>
+                <p className="text-xs text-muted-foreground mt-2">Полнота маркетинг-данных: {completeness.overall}%</p>
               </CardContent>
             </Card>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-3">
-            <Card className="bg-white xl:col-span-2">
+          <div className="grid gap-5 xl:grid-cols-3">
+            <Card className="chrona-hero xl:col-span-2">
               <CardHeader>
-                <CardTitle className="text-slate-900">Сводка эффективности источников</CardTitle>
-                <CardDescription className="text-slate-600">
+                <CardTitle>Сводка эффективности источников</CardTitle>
+                <CardDescription>
                   Где внимание становится лидами/деньгами, а где теряется.
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {topSources.slice(0, 3).map((s) => (
-                    <div key={s.channelCampaignExternalId} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-sm text-slate-500">Работает</p>
-                      <p className="mt-2 text-lg font-semibold text-slate-900 truncate">{s.name}</p>
-                      <p className="mt-1 text-sm text-slate-600">
+                    <div key={s.channelCampaignExternalId} className="chrona-muted-surface">
+                      <p className="text-sm text-muted-foreground">Работает</p>
+                      <p className="mt-2 text-lg font-semibold text-foreground truncate">{s.name}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
                         Выручка {formatKZT(s.revenue)} · D→P {percentOrDash(s.dealToPaidRate)}
                       </p>
                     </div>
@@ -249,28 +242,28 @@ export default function MarketingReports() {
                 </div>
 
                 {!hasSpend ? (
-                  <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                    Расход по каналам отсутствует или неполный: ROI/CAC-интерпретация ограничена. Органические и конверсионные метрики остаются валидными.
+                  <div className="mt-4 rounded-lg border border-amber-300/60 bg-amber-100/50 dark:bg-amber-900/20 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+                    Расход по каналам отсутствует или неполный: ROI и стоимость привлечения ограничены. Органические и конверсионные метрики остаются валидными.
                   </div>
                 ) : null}
               </CardContent>
             </Card>
 
-            <Card className="bg-white">
+            <Card className="chrona-surface">
               <CardHeader>
-                <CardTitle className="text-slate-900">Выводы</CardTitle>
-                <CardDescription className="text-slate-600">
+                <CardTitle>Выводы</CardTitle>
+                <CardDescription>
                   Что сейчас работает слабее всего
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {weakSources.length === 0 ? (
-                  <p className="text-sm text-slate-600">Пока нет достаточно каналов для ранжирования слабых зон.</p>
+                  <p className="text-sm text-muted-foreground">Пока нет достаточно каналов для ранжирования слабых зон.</p>
                 ) : (
                   weakSources.slice(0, 3).map((s) => (
-                    <div key={s.channelCampaignExternalId} className="rounded-lg border border-slate-200 p-4">
-                      <p className="text-sm text-slate-500 truncate">{s.name}</p>
-                      <p className="mt-1 text-sm leading-6 text-slate-700">
+                    <div key={s.channelCampaignExternalId} className="chrona-muted-surface">
+                      <p className="text-sm text-muted-foreground truncate">{s.name}</p>
+                      <p className="mt-1 text-sm leading-6 text-foreground/90">
                         L→D {percentOrDash(s.leadToDealRate)} · D→P {percentOrDash(s.dealToPaidRate)} · Выручка {formatKZT(s.revenue)}
                       </p>
                     </div>
@@ -280,21 +273,21 @@ export default function MarketingReports() {
             </Card>
           </div>
 
-          <Card className="bg-white">
+          <Card className="chrona-surface">
             <CardHeader>
-              <CardTitle className="text-slate-900">Справка по spend (поддерживающий слой)</CardTitle>
-              <CardDescription className="text-slate-600">
-                Расходы по месяцам для cost-based метрик.
+              <CardTitle>Справка по spend (поддерживающий слой)</CardTitle>
+              <CardDescription>
+                Расходы по месяцам для метрик эффективности затрат.
               </CardDescription>
             </CardHeader>
             <CardContent>
               {marketingSpend.length === 0 ? (
-                <p className="text-sm text-slate-600">Нет marketing_spend. Для ROI/CAC загрузите файл расходов.</p>
+                <p className="text-sm text-muted-foreground">Нет данных по расходам. Для ROI и стоимости привлечения загрузите файл расходов.</p>
               ) : (
-                <div className="overflow-x-auto rounded-md border border-slate-200">
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-50">
-                      <tr className="text-left text-slate-600">
+                <div className="chrona-table">
+                  <table className="text-sm">
+                    <thead>
+                      <tr className="text-left text-muted-foreground">
                         <th className="px-4 py-3 font-medium">Период</th>
                         <th className="px-4 py-3 font-medium">Spend</th>
                         <th className="px-4 py-3 font-medium">Доля spend</th>
@@ -304,10 +297,10 @@ export default function MarketingReports() {
                       {[...marketingSpend].sort((a, b) => b.month.localeCompare(a.month)).map((item) => {
                         const sharePercent = totalSpend > 0 ? (item.amount / totalSpend) * 100 : 0;
                         return (
-                          <tr key={item.id} className="border-t border-slate-200">
-                            <td className="px-4 py-3 text-slate-900 font-medium">{formatMonthLabel(item.month)}</td>
-                            <td className="px-4 py-3 text-slate-700">{formatKZT(item.amount)}</td>
-                            <td className="px-4 py-3 text-slate-700">{sharePercent.toFixed(1)}%</td>
+                          <tr key={item.id}>
+                            <td className="px-4 py-3 text-foreground font-medium">{formatMonthLabel(item.month)}</td>
+                            <td className="px-4 py-3 text-muted-foreground">{formatKZT(item.amount)}</td>
+                            <td className="px-4 py-3 text-muted-foreground">{sharePercent.toFixed(1)}%</td>
                           </tr>
                         );
                       })}

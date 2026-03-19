@@ -337,7 +337,7 @@ export default function MarketingToRevenueDashboard() {
   })();
 
   return (
-    <div className="rct-page p-4 lg:p-6 max-w-[1400px] mx-auto space-y-6">
+    <div className="chrona-page">
       {/* Header */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
@@ -379,7 +379,7 @@ export default function MarketingToRevenueDashboard() {
         <>
 
           {/* ============================================= */}
-          {/* ORGANIC FUNNEL (content_metrics input)      */}
+          {/* ORGANIC FUNNEL (manual content upload)      */}
           {/* ============================================= */}
           <section className="space-y-4">
             <div className="flex items-center gap-2">
@@ -389,18 +389,18 @@ export default function MarketingToRevenueDashboard() {
               </Badge>
             </div>
 
-            <div className="rct-card-inset p-4 border-dashed">
+            <div className="chrona-muted-surface border-dashed border">
               <p className="text-sm text-muted-foreground">
                 Сейчас Meta Graph API не подключен. Для Instagram / TikTok / соцсетей используйте <strong>ручной импорт</strong> файла{' '}
-                <strong>content_metrics</strong> (reach, engagement, DMs, leads, deals, paid conversions). Это текущий поддерживаемый поток для органики.
+                <strong>контент-метрик</strong> (охват, вовлечение, сообщения, лиды, сделки, оплаты). Это текущий поддерживаемый поток для органики.
               </p>
             </div>
 
             {!hasOrganicInRange ? (
-              <p className="text-sm text-muted-foreground">В выбранном периоде нет данных по <strong>content_metrics</strong>. Загрузите отчёт — и появится органическая воронка.</p>
+              <p className="text-sm text-muted-foreground">В выбранном периоде нет данных по контенту/органике. Загрузите отчёт — и появится органическая воронка.</p>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                <div className="rct-card rct-card-padding">
+                <div className="chrona-hero">
                   <SectionHeader title="Reach → Engagement → Profile Visits → Messages → Leads → Deals → Paid" size="sm" />
                   <div className="mt-4 space-y-4">
                     {(() => {
@@ -485,7 +485,7 @@ export default function MarketingToRevenueDashboard() {
                   </div>
                 </div>
 
-                <div className="rct-card rct-card-padding">
+                <div className="chrona-surface">
                   <SectionHeader title="Частичные данные (без подстановок)" size="sm" description="Показываем что есть в импортированном отчёте." />
                   <div className="mt-4 space-y-3">
                     <div className="flex items-center justify-between gap-3">
@@ -514,7 +514,7 @@ export default function MarketingToRevenueDashboard() {
                     </div>
 
                     <p className="text-xs text-muted-foreground mt-2">
-                      Конверсии считаются только по тем значениям, которые есть в <strong>content_metrics</strong>. Если поле отсутствует/нулевое, то и конверсия будет некорректной — мы не подставляем числа.
+                      Конверсии считаются только по данным, которые реально загружены. Если поле отсутствует или нулевое — мы не подставляем значения.
                     </p>
                   </div>
                 </div>
@@ -567,7 +567,7 @@ export default function MarketingToRevenueDashboard() {
               }}
             />
             <ControlTowerKpiCard
-              title="Bottleneck"
+              title="Главный провал"
               value={bottleneck.label}
               subtitle={`провал ${percentFromRatio(bottleneck.v)}`}
               status="danger"
@@ -591,7 +591,7 @@ export default function MarketingToRevenueDashboard() {
 
             <div className="grid grid-cols-1 lg:grid-cols-1 gap-5">
               {/* Full funnel with conversion rates */}
-              <div className="rct-card rct-card-padding">
+              <div className="chrona-surface">
                 <SectionHeader title="Сквозная воронка" size="sm" description="Конверсии между каждым шагом" />
                 <div className="mt-4 space-y-4">
                   {(() => {
@@ -630,9 +630,9 @@ export default function MarketingToRevenueDashboard() {
                 Для каналов в выбранном периоде недостаточно связей до оплаченных сделок. Органика и публикации — сверху.
               </p>
             ) : (
-              <div className="rct-card overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+              <div className="chrona-surface overflow-hidden">
+                <div className="chrona-table">
+                  <table>
                     <thead>
                       <tr className="border-b bg-muted/30">
                         <th className="text-left px-4 py-3 font-medium text-muted-foreground text-xs">Канал</th>
@@ -720,28 +720,28 @@ export default function MarketingToRevenueDashboard() {
 
             {/* Content analytics (when content metrics exist in the system) */}
             {!hasAnyContentMetrics && (
-              <div className="rct-card-inset p-4 mb-5 border-dashed">
+              <div className="chrona-muted-surface mb-5 border-dashed border">
                 <p className="text-sm text-muted-foreground">
-                  <strong>Нет данных по контенту.</strong> Загрузите файл content_metrics в разделе Загрузки — тогда появится аналитика по публикациям и вовлечению.
+                  <strong>Нет данных по контенту.</strong> Загрузите файл с контент-метриками в разделе «Загрузки», и появится аналитика публикаций и вовлечения.
                 </p>
               </div>
             )}
             {hasAnyContentMetrics && !hasOrganicInRange && (
-              <div className="rct-card-inset p-4 mb-5 border-dashed">
+              <div className="chrona-muted-surface mb-5 border-dashed border">
                 <p className="text-sm text-muted-foreground">
-                  В выбранном периоде нет <strong>content_metrics</strong>. Загрузите отчёт за нужные даты — и появится органическая воронка и контент-анализ.
+                  В выбранном периоде нет контент-данных. Загрузите отчёт за нужные даты — и появится органическая воронка и контент-анализ.
                 </p>
               </div>
             )}
             {hasOrganicInRange && (
-              <div className="rct-card rct-card-padding mb-5">
+              <div className="chrona-surface mb-5">
                 <SectionHeader title="Контент / органика" size="sm" description="Какие посты дают лиды, а какие их почти не приносят" />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                   <div>
                     <p className="text-xs font-medium text-muted-foreground mb-2">Что работает (с лид-эффектом)</p>
                     <div className="space-y-2">
                       {contentPerformance.topPerforming.slice(0, 3).map((c) => (
-                        <div key={c.contentId} className="rct-card-inset p-3 flex justify-between items-start gap-3">
+                        <div key={c.contentId} className="chrona-muted-surface flex justify-between items-start gap-3">
                           <div className="min-w-0">
                             <p className="text-sm font-semibold text-foreground whitespace-normal break-words">
                               {c.contentTitle || c.contentId}
@@ -777,7 +777,7 @@ export default function MarketingToRevenueDashboard() {
                     <p className="text-xs font-medium text-muted-foreground mb-2">Что не работает (почти без лидов)</p>
                     <div className="space-y-2">
                       {contentPerformance.worstPerforming.slice(0, 3).map((c) => (
-                        <div key={c.contentId} className="rct-card-inset p-3 flex justify-between items-start gap-3">
+                        <div key={c.contentId} className="chrona-muted-surface flex justify-between items-start gap-3">
                           <div className="min-w-0">
                             <p className="text-sm font-semibold text-foreground whitespace-normal break-words">
                               {c.contentTitle || c.contentId}
@@ -825,7 +825,7 @@ export default function MarketingToRevenueDashboard() {
               </div>
             )}
 
-            <div className="rct-card rct-card-padding mb-5">
+            <div className="chrona-surface mb-5">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4 text-rose-500" />
@@ -850,7 +850,7 @@ export default function MarketingToRevenueDashboard() {
                   <span className="font-medium text-foreground">Органика:</span>{' '}
                   {organicMissingHint ??
                     (organicTotals.leadsGenerated > 0
-                      ? 'По content_metrics лиды и сделки присутствуют — проверяйте конверсию дальше.'
+                      ? 'По контент-данным лиды и сделки присутствуют — проверяйте конверсию дальше.'
                       : 'В отчёте нет достаточных полей, чтобы посчитать полный путь Reach → Paid без подстановок.')}
                 </div>
                 <div className="text-sm text-muted-foreground">
@@ -877,7 +877,7 @@ export default function MarketingToRevenueDashboard() {
             >
               <div className="space-y-3">
                 {channelTableData.slice(0, 8).map((ch) => (
-                  <div key={ch.id} className="rct-card-inset p-3">
+                  <div key={ch.id} className="chrona-muted-surface">
                     <div className="flex items-start justify-between gap-3 mb-2">
                       <p className="text-sm font-medium text-foreground truncate">{ch.name}</p>
                       <div className="flex gap-2 shrink-0">

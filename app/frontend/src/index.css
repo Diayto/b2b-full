@@ -20,9 +20,9 @@
     --rct-text-secondary: 225 8% 42%;
     --rct-text-tertiary: 225 6% 56%;
 
-    /* ── Brand — soft cobalt ── */
-    --rct-primary: 230 50% 45%;
-    --rct-primary-hover: 230 50% 38%;
+    /* ── Brand — Chrona violet ── */
+    --rct-primary: 262 58% 54%;
+    --rct-primary-hover: 262 58% 47%;
     --rct-primary-fg: 0 0% 100%;
 
     /* ── Semantic status ── */
@@ -50,9 +50,9 @@
     --rct-text-secondary: 220 4% 65%;
     --rct-text-tertiary: 220 4% 50%;
 
-    /* ── Brand — soft cobalt (dark variant) ── */
-    --rct-primary: 230 50% 62%;
-    --rct-primary-hover: 230 50% 68%;
+    /* ── Brand — Chrona violet (dark variant) ── */
+    --rct-primary: 262 64% 66%;
+    --rct-primary-hover: 262 68% 72%;
     --rct-primary-fg: 0 0% 100%;
 
     /* ── Semantic status ── */
@@ -185,6 +185,35 @@
   .rct-section-gap-lg {
     @apply space-y-10;
   }
+
+  /* ===== Chrona shared primitives ===== */
+  .chrona-page {
+    @apply rct-page p-4 lg:p-6 max-w-[1400px] mx-auto space-y-6;
+  }
+  .chrona-hero {
+    @apply rct-hero-card rct-card-padding;
+  }
+  .chrona-surface {
+    @apply rct-card rct-card-padding;
+  }
+  .chrona-muted-surface {
+    @apply rct-card-inset p-3.5;
+  }
+  .chrona-section-title {
+    @apply text-base font-semibold text-foreground;
+  }
+  .chrona-table {
+    @apply overflow-x-auto rounded-lg border border-border/70 bg-card;
+  }
+  .chrona-table table {
+    @apply w-full text-sm;
+  }
+  .chrona-table thead tr {
+    @apply border-b bg-muted/30;
+  }
+  .chrona-table tbody tr {
+    @apply border-b border-border/30 transition-colors hover:bg-muted/20;
+  }
 }
 
 /* ===== shadcn/ui base tokens — aligned with premium palette ===== */
@@ -199,7 +228,7 @@
     --popover: 0 0% 100%;
     --popover-foreground: 230 20% 12%;
 
-    --primary: 230 50% 45%;
+    --primary: 262 58% 54%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 225 10% 93%;
@@ -216,18 +245,18 @@
 
     --border: 225 10% 88%;
     --input: 225 10% 88%;
-    --ring: 230 50% 45%;
+    --ring: 262 58% 54%;
 
     --radius: 0.5rem;
 
     --sidebar-background: 0 0% 100%;
     --sidebar-foreground: 230 15% 20%;
-    --sidebar-primary: 230 50% 45%;
+    --sidebar-primary: 262 58% 54%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 225 10% 95%;
     --sidebar-accent-foreground: 230 15% 20%;
     --sidebar-border: 225 10% 90%;
-    --sidebar-ring: 230 50% 50%;
+    --sidebar-ring: 262 58% 54%;
   }
 
   .dark {
@@ -240,7 +269,7 @@
     --popover: 220 5% 12%;
     --popover-foreground: 0 0% 92%;
 
-    --primary: 230 50% 62%;
+    --primary: 262 64% 66%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 220 5% 13%;
@@ -257,16 +286,16 @@
 
     --border: 220 5% 17%;
     --input: 220 5% 17%;
-    --ring: 230 50% 62%;
+    --ring: 262 64% 66%;
 
     --sidebar-background: 220 5% 8%;
     --sidebar-foreground: 0 0% 88%;
-    --sidebar-primary: 230 50% 62%;
+    --sidebar-primary: 262 64% 66%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 220 5% 12%;
     --sidebar-accent-foreground: 0 0% 88%;
     --sidebar-border: 220 5% 14%;
-    --sidebar-ring: 230 50% 62%;
+    --sidebar-ring: 262 64% 66%;
   }
 }
 

@@ -118,21 +118,21 @@ export default function SettingsPage() {
 
   return (
     <AppLayout>
-      <div className="rct-page p-4 lg:p-6 space-y-8 max-w-[800px] mx-auto">
+      <div className="chrona-page max-w-[900px]">
         <div>
           <h1 className="rct-page-title">Настройки</h1>
           <p className="rct-body-micro mt-1">Управление аккаунтом и компанией</p>
         </div>
 
         {/* Company Info */}
-        <Card className="rct-card">
-          <CardHeader className="rct-card-padding pb-3">
-            <CardTitle className="rct-section-title flex items-center gap-2">
+        <Card className="chrona-surface">
+          <CardHeader className="pb-3">
+            <CardTitle className="chrona-section-title flex items-center gap-2">
               <Building2 className="h-5 w-5 text-primary" />
               Компания
             </CardTitle>
           </CardHeader>
-          <CardContent className="rct-card-padding pt-0 space-y-4">
+          <CardContent className="pt-0 space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label className="text-xs text-muted-foreground">Название</Label>
@@ -157,14 +157,14 @@ export default function SettingsPage() {
         </Card>
 
         {/* User Info */}
-        <Card className="rct-card">
-          <CardHeader className="rct-card-padding pb-3">
-            <CardTitle className="rct-section-title flex items-center gap-2">
+        <Card className="chrona-surface">
+          <CardHeader className="pb-3">
+            <CardTitle className="chrona-section-title flex items-center gap-2">
               <User className="h-5 w-5 text-primary" />
               Профиль
             </CardTitle>
           </CardHeader>
-          <CardContent className="rct-card-padding pt-0 space-y-4">
+          <CardContent className="pt-0 space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label className="text-xs text-muted-foreground">Имя</Label>
@@ -183,29 +183,29 @@ export default function SettingsPage() {
         </Card>
 
         {/* Data Stats */}
-        <Card className="rct-card">
-          <CardHeader className="rct-card-padding pb-3">
-            <CardTitle className="rct-section-title flex items-center gap-2">
+        <Card className="chrona-surface">
+          <CardHeader className="pb-3">
+            <CardTitle className="chrona-section-title flex items-center gap-2">
               <Database className="h-5 w-5 text-primary" />
               Данные
             </CardTitle>
             <CardDescription>Статистика загруженных данных</CardDescription>
           </CardHeader>
-          <CardContent className="rct-card-padding pt-0">
+          <CardContent className="pt-0">
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="rct-stat-box-slate">
+              <div className="chrona-muted-surface">
                 <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Транзакций</div>
                 <div className="text-xl font-bold text-foreground mt-2 tracking-tight">{txnCount}</div>
               </div>
-              <div className="rct-stat-box-slate">
+              <div className="chrona-muted-surface">
                 <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Клиентов</div>
                 <div className="text-xl font-bold text-foreground mt-2 tracking-tight">{custCount}</div>
               </div>
-              <div className="rct-stat-box-slate">
+              <div className="chrona-muted-surface">
                 <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Счетов</div>
                 <div className="text-xl font-bold text-foreground mt-2 tracking-tight">{invCount}</div>
               </div>
-              <div className="rct-stat-box-slate">
+              <div className="chrona-muted-surface">
                 <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Документов</div>
                 <div className="text-xl font-bold text-foreground mt-2 tracking-tight">{docCount}</div>
               </div>
@@ -227,15 +227,15 @@ export default function SettingsPage() {
         </Card>
 
         {/* Notifications */}
-        <Card className="rct-card">
-          <CardHeader className="rct-card-padding pb-3">
-            <CardTitle className="rct-section-title flex items-center gap-2">
+        <Card className="chrona-hero">
+          <CardHeader className="pb-3">
+            <CardTitle className="chrona-section-title flex items-center gap-2">
               <BellRing className="h-5 w-5 text-primary" />
               Уведомления по дедлайнам
             </CardTitle>
             <CardDescription>Email-напоминания за 7, 3 дня и в день дедлайна</CardDescription>
           </CardHeader>
-          <CardContent className="rct-card-padding pt-0 space-y-4">
+          <CardContent className="pt-0 space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-foreground">Включить уведомления</p>
@@ -294,7 +294,7 @@ export default function SettingsPage() {
               ) : (
                 <div className="space-y-2 max-h-48 overflow-y-auto">
                   {recentLogs.map((log) => (
-                    <div key={log.id} className="rounded-md border border-border p-2 text-xs">
+                    <div key={log.id} className="chrona-muted-surface text-xs">
                       <div className="flex items-center justify-between gap-2">
                         <p className="font-medium text-foreground truncate">{log.documentTitle}</p>
                         <Badge
@@ -325,11 +325,11 @@ export default function SettingsPage() {
         </Card>
 
         {/* About */}
-        <Card className="rct-card">
+        <Card className="chrona-surface">
           <CardContent className="py-6 text-center">
-            <p className="rct-subsection-title">BizPulse KZ</p>
+            <p className="rct-subsection-title">Chrona</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Весь бизнес на одном экране за 30 секунд
+              Founder-grade revenue control system
             </p>
             <p className="text-xs text-muted-foreground/60 mt-2">MVP v1.0 · 2026</p>
           </CardContent>

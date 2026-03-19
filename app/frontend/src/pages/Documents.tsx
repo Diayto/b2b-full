@@ -149,7 +149,7 @@ export default function DocumentsPage() {
 
   return (
     <AppLayout>
-      <div className="rct-page p-4 lg:p-6 space-y-8 max-w-[1400px] mx-auto">
+      <div className="chrona-page">
         {/* Header */}
         <div>
           <h1 className="rct-page-title">Документы</h1>
@@ -158,16 +158,16 @@ export default function DocumentsPage() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           {/* Upload Form */}
-          <Card className="rct-card">
-            <CardHeader className="rct-card-padding pb-3">
-              <CardTitle className="rct-section-title flex items-center gap-2">
-                <Upload className="h-5 w-5 text-[#1E3A5F]" />
+          <Card className="chrona-hero">
+            <CardHeader className="pb-3">
+              <CardTitle className="chrona-section-title flex items-center gap-2">
+                <Upload className="h-5 w-5 text-primary" />
                 Загрузить документ
               </CardTitle>
             </CardHeader>
-            <CardContent className="rct-card-padding pt-0 space-y-4">
+            <CardContent className="pt-0 space-y-4">
               <div className="space-y-2">
                 <Label>Название</Label>
                 <Input
@@ -245,7 +245,7 @@ export default function DocumentsPage() {
           {/* Documents List */}
           <div className="lg:col-span-2">
             {documents.length === 0 ? (
-              <Card className="rct-card">
+              <Card className="chrona-surface">
                 <CardContent className="py-16 text-center">
                   <FileText className="h-12 w-12 text-muted-foreground/40 mx-auto mb-4" />
                   <p className="text-sm font-medium text-muted-foreground">Нет документов</p>
@@ -259,9 +259,9 @@ export default function DocumentsPage() {
                   .map(doc => (
                     <Card
                       key={doc.id}
-                      className={`rct-card transition-shadow hover:shadow-md cursor-pointer ${
-                        isExpired(doc.endDate) ? 'border-red-200 bg-red-50/30' :
-                        isDeadlineSoon(doc.endDate) ? 'border-amber-200 bg-amber-50/30' :
+                      className={`chrona-surface transition-shadow hover:shadow-md cursor-pointer ${
+                        isExpired(doc.endDate) ? 'border-rose-300/60 bg-rose-100/40 dark:bg-rose-900/20' :
+                        isDeadlineSoon(doc.endDate) ? 'border-amber-300/60 bg-amber-100/40 dark:bg-amber-900/20' :
                         ''
                       }`}
                     >
@@ -269,10 +269,10 @@ export default function DocumentsPage() {
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-start gap-3 min-w-0 flex-1">
                             <div className={`p-2 rounded-lg shrink-0 ${
-                              doc.fileType === 'pdf' ? 'bg-red-100' : 'bg-blue-100'
+                              doc.fileType === 'pdf' ? 'bg-rose-100/70 dark:bg-rose-900/30' : 'bg-primary/10'
                             }`}>
                               <FileText className={`h-5 w-5 ${
-                                doc.fileType === 'pdf' ? 'text-red-600' : 'text-blue-600'
+                                doc.fileType === 'pdf' ? 'text-rose-600 dark:text-rose-300' : 'text-primary'
                               }`} />
                             </div>
                             <div className="min-w-0 flex-1">

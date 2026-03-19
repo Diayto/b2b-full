@@ -47,15 +47,32 @@ function formatUploadStatus(status: string): string {
 function getStatusClasses(status: string): string {
   switch (status) {
     case 'completed':
-      return 'bg-emerald-50 text-emerald-700 border border-emerald-200';
+      return 'bg-emerald-100/60 dark:bg-emerald-900/25 text-emerald-700 dark:text-emerald-300 border border-emerald-300/60 dark:border-emerald-800/40';
     case 'processing':
-      return 'bg-amber-50 text-amber-700 border border-amber-200';
+      return 'bg-amber-100/60 dark:bg-amber-900/25 text-amber-700 dark:text-amber-300 border border-amber-300/60 dark:border-amber-800/40';
     case 'pending':
-      return 'bg-slate-100 text-slate-700 border border-slate-200';
+      return 'bg-muted text-muted-foreground border border-border/60';
     case 'error':
-      return 'bg-rose-50 text-rose-700 border border-rose-200';
+      return 'bg-rose-100/60 dark:bg-rose-900/25 text-rose-700 dark:text-rose-300 border border-rose-300/60 dark:border-rose-800/40';
     default:
-      return 'bg-slate-100 text-slate-700 border border-slate-200';
+      return 'bg-muted text-muted-foreground border border-border/60';
+  }
+}
+
+function fileTypeLabel(type: string): string {
+  switch (type) {
+    case 'content_metrics':
+      return 'Контент / органика';
+    case 'channels_campaigns':
+      return 'Источники / каналы';
+    case 'marketing_spend':
+      return 'Расходы';
+    case 'leads':
+      return 'Лиды';
+    case 'deals':
+      return 'Сделки';
+    default:
+      return type;
   }
 }
 
@@ -141,80 +158,77 @@ export default function MarketingData() {
   }, [marketingUploads]);
 
   return (
-    <div className="space-y-8">
+    <div className="chrona-page">
       <div>
-        <h2 className="text-2xl font-bold text-slate-900">Данные</h2>
-        <p className="text-slate-600 mt-1">
+        <h2 className="rct-page-title">Данные маркетинга</h2>
+        <p className="rct-body-micro text-muted-foreground mt-1">
           Центр контроля маркетинг-данных: что загружено, что отсутствует и насколько данные пригодны для аналитики.
         </p>
       </div>
 
       {!hasAnyData ? (
-        <Card className="border-dashed border-slate-300 bg-white">
+        <Card className="chrona-surface border-dashed">
           <CardHeader>
-            <CardTitle className="text-slate-900">Нет данных</CardTitle>
-            <CardDescription className="text-slate-600">
-              Загрузите маркетинговые файлы, чтобы включить аналитику: content_metrics, channels_campaigns, marketing_spend.
+            <CardTitle>Нет данных</CardTitle>
+            <CardDescription>
+              Загрузите маркетинговые файлы: контент/органика, источники/каналы и расходы.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <p className="text-slate-500 mb-6 max-w-md">
-              Пока нет маркетингового набора данных. Начните с content_metrics (органика), затем добавьте channels_campaigns и marketing_spend для cost-метрик.
+            <p className="text-muted-foreground mb-6 max-w-md">
+              Пока нет маркетингового набора данных. Начните с контента/органики, затем добавьте источники и расходы.
             </p>
-            <Button
-              onClick={() => navigate('/uploads')}
-              className="bg-[#1E3A5F] hover:bg-[#1E3A5F]/90 text-white px-6"
-            >
+            <Button onClick={() => navigate('/uploads')}>
               Перейти в Загрузки
             </Button>
           </CardContent>
         </Card>
       ) : (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            <Card className="bg-white">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
+            <Card className="chrona-surface">
               <CardHeader className="pb-3">
-                <CardDescription className="text-slate-500">content_metrics</CardDescription>
-                <CardTitle className="text-2xl text-slate-900">{contentMetrics.length}</CardTitle>
-                <p className="text-xs text-slate-500 mt-1">Органика / Instagram / TikTok</p>
+                <CardDescription>Контент / органика</CardDescription>
+                <CardTitle className="text-2xl text-foreground">{contentMetrics.length}</CardTitle>
+                <p className="text-xs text-muted-foreground mt-1">Органика / Instagram / TikTok</p>
               </CardHeader>
             </Card>
 
-            <Card className="bg-white">
+            <Card className="chrona-surface">
               <CardHeader className="pb-3">
-                <CardDescription className="text-slate-500">channels_campaigns</CardDescription>
-                <CardTitle className="text-2xl text-slate-900">{channelCampaigns.length}</CardTitle>
-                <p className="text-xs text-slate-500 mt-1">Связь источников и кампаний</p>
+                <CardDescription>Источники / каналы</CardDescription>
+                <CardTitle className="text-2xl text-foreground">{channelCampaigns.length}</CardTitle>
+                <p className="text-xs text-muted-foreground mt-1">Связь источников и кампаний</p>
               </CardHeader>
             </Card>
 
-            <Card className="bg-white">
+            <Card className="chrona-surface">
               <CardHeader className="pb-3">
-                <CardDescription className="text-slate-500">marketing_spend</CardDescription>
-                <CardTitle className="text-2xl text-slate-900">
+                <CardDescription>Расходы</CardDescription>
+                <CardTitle className="text-2xl text-foreground">
                   {marketingRows.length}
                 </CardTitle>
                 {latestMonth ? (
-                  <p className="text-xs text-slate-500 mt-1">Последний месяц: {latestMonth}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Последний месяц: {latestMonth}</p>
                 ) : null}
               </CardHeader>
             </Card>
 
-            <Card className="bg-white">
+            <Card className="chrona-surface">
               <CardHeader className="pb-3">
-                <CardDescription className="text-slate-500">Доверие к маркетинг-данным</CardDescription>
-                <CardTitle className="text-2xl text-slate-900">{completeness.overall}%</CardTitle>
-                <p className="text-xs text-slate-500 mt-1">
-                  {completeness.overall >= 80 ? 'Точные данные' : completeness.overall >= 50 ? 'Частичные данные' : 'Неполные данные'}
+                <CardDescription>Доверие к маркетинг-данным</CardDescription>
+                <CardTitle className="text-2xl text-foreground">{completeness.overall}%</CardTitle>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {completeness.overall >= 80 ? 'Exact (точно)' : completeness.overall >= 50 ? 'Fallback (по неполным связям)' : 'Incomplete (неполно)'}
                 </p>
               </CardHeader>
             </Card>
           </div>
 
-          <Card className="bg-white">
+          <Card className="chrona-hero">
             <CardHeader>
-              <CardTitle className="text-slate-900">Готовность маркетинг-аналитики</CardTitle>
-              <CardDescription className="text-slate-600">
+              <CardTitle>Готовность маркетинг-аналитики</CardTitle>
+              <CardDescription>
                 Быстрый ответ: достаточно ли данных для отчётов и overview.
               </CardDescription>
             </CardHeader>
@@ -234,50 +248,50 @@ export default function MarketingData() {
                 </Badge>
               </div>
 
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-muted-foreground">
                 {contentMetrics.length > 0 && marketingRows.length === 0
-                  ? 'Органика доступна, но cost-метрики (ROI/CAC) будут ограничены без marketing_spend.'
+                  ? 'Органика доступна, но метрики затрат (ROI и стоимость привлечения) будут ограничены без данных по расходам.'
                   : contentMetrics.length === 0 && marketingRows.length > 0
-                    ? 'Расход есть, но без content_metrics отсутствует вклад публикаций и органики.'
+                    ? 'Расход есть, но без контент-данных не виден вклад публикаций и органики.'
                     : contentMetrics.length > 0 && marketingRows.length > 0
-                      ? 'Есть и organic, и spend — отчёты/overview будут наиболее полными.'
-                      : 'Загрузите хотя бы один ключевой слой (content_metrics или marketing_spend), чтобы начать анализ.'}
+                      ? 'Есть и органика, и расходы — отчёты будут наиболее полными.'
+                      : 'Загрузите хотя бы один ключевой слой (контент/органика или расходы), чтобы начать анализ.'}
               </p>
             </CardContent>
           </Card>
 
-          <Card className="bg-white">
+          <Card className="chrona-surface">
             <CardHeader>
-              <CardTitle className="text-slate-900">История загрузок</CardTitle>
-              <CardDescription className="text-slate-600">
+              <CardTitle>История загрузок</CardTitle>
+              <CardDescription>
                 Последние импорты маркетинговых файлов
               </CardDescription>
             </CardHeader>
             <CardContent>
               {marketingUploads.length === 0 ? (
-                <div className="h-40 flex items-center justify-center bg-slate-50 rounded-md border border-slate-200">
-                  <p className="text-slate-500">Маркетинговые загрузки пока отсутствуют</p>
+                <div className="h-40 flex items-center justify-center bg-muted/30 rounded-md border border-border/60">
+                  <p className="text-muted-foreground">Маркетинговые загрузки пока отсутствуют</p>
                 </div>
               ) : (
                 <div className="space-y-3">
                   <div className="flex flex-wrap gap-2">
                     {Array.from(uploadsByType.entries()).map(([type, count]) => (
                       <Badge key={type} variant="secondary" className="text-xs">
-                        {type}: {count}
+                        {fileTypeLabel(type)}: {count}
                       </Badge>
                     ))}
                   </div>
 
                   {latestUpload && (
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-muted-foreground">
                       Последняя загрузка: {latestUpload.originalFileName} · {formatDateTime(latestUpload.createdAt)}
                     </p>
                   )}
 
-                  <div className="overflow-x-auto rounded-md border border-slate-200">
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-50">
-                      <tr className="text-left text-slate-600">
+                  <div className="chrona-table">
+                  <table className="text-sm">
+                    <thead>
+                      <tr className="text-left text-muted-foreground">
                         <th className="px-4 py-3 font-medium">Тип</th>
                         <th className="px-4 py-3 font-medium">Файл</th>
                         <th className="px-4 py-3 font-medium">Статус</th>
@@ -289,9 +303,9 @@ export default function MarketingData() {
                     </thead>
                     <tbody>
                       {marketingUploads.map((upload) => (
-                        <tr key={upload.id} className="border-t border-slate-200">
-                          <td className="px-4 py-3 text-slate-700">{upload.fileType}</td>
-                          <td className="px-4 py-3 text-slate-900 font-medium">{upload.originalFileName}</td>
+                        <tr key={upload.id}>
+                          <td className="px-4 py-3 text-muted-foreground">{fileTypeLabel(upload.fileType)}</td>
+                          <td className="px-4 py-3 text-foreground font-medium">{upload.originalFileName}</td>
                           <td className="px-4 py-3">
                             <span
                               className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${getStatusClasses(upload.status)}`}
@@ -299,10 +313,10 @@ export default function MarketingData() {
                               {formatUploadStatus(upload.status)}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-slate-700">{upload.totalRows}</td>
-                          <td className="px-4 py-3 text-slate-700">{upload.successRows}</td>
-                          <td className="px-4 py-3 text-slate-700">{upload.errorRows}</td>
-                          <td className="px-4 py-3 text-slate-700">{formatDateTime(upload.createdAt)}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{upload.totalRows}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{upload.successRows}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{upload.errorRows}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{formatDateTime(upload.createdAt)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -313,11 +327,11 @@ export default function MarketingData() {
             </CardContent>
           </Card>
 
-          <Card className="bg-white">
+          <Card className="chrona-surface">
             <CardHeader>
-              <CardTitle className="text-slate-900">Сырые данные spend</CardTitle>
-              <CardDescription className="text-slate-600">
-                Базовые записи marketing_spend (поддерживающий слой для cost-метрик)
+              <CardTitle>Базовые записи расходов</CardTitle>
+              <CardDescription>
+                Источник для метрик затрат и сравнения периодов.
               </CardDescription>
             </CardHeader>
 
@@ -329,7 +343,7 @@ export default function MarketingData() {
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Поиск по месяцу, например 2026-03"
-                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-[#1E3A5F] focus:ring-2 focus:ring-[#1E3A5F]/10"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
                   />
                 </div>
 
@@ -337,7 +351,7 @@ export default function MarketingData() {
                   <select
                     value={sortKey}
                     onChange={(e) => setSortKey(e.target.value as SortKey)}
-                    className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-[#1E3A5F]"
+                    className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
                   >
                     <option value="month">Сортировка: месяц</option>
                     <option value="amount">Сортировка: сумма</option>
@@ -346,7 +360,7 @@ export default function MarketingData() {
                   <select
                     value={sortDirection}
                     onChange={(e) => setSortDirection(e.target.value as SortDirection)}
-                    className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-[#1E3A5F]"
+                    className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
                   >
                     <option value="desc">По убыванию</option>
                     <option value="asc">По возрастанию</option>
@@ -355,16 +369,16 @@ export default function MarketingData() {
               </div>
 
               {filteredRows.length === 0 ? (
-                <div className="h-56 flex items-center justify-center bg-slate-50 rounded-md border border-slate-200">
-                  <p className="text-slate-500">
+                <div className="h-56 flex items-center justify-center bg-muted/30 rounded-md border border-border/60">
+                  <p className="text-muted-foreground">
                     По текущему фильтру записи не найдены
                   </p>
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-md border border-slate-200">
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-50">
-                      <tr className="text-left text-slate-600">
+                <div className="chrona-table">
+                  <table className="text-sm">
+                    <thead>
+                      <tr className="text-left text-muted-foreground">
                         <th className="px-4 py-3 font-medium">Месяц</th>
                         <th className="px-4 py-3 font-medium">Сумма</th>
                         <th className="px-4 py-3 font-medium">Upload ID</th>
@@ -372,10 +386,10 @@ export default function MarketingData() {
                     </thead>
                     <tbody>
                       {filteredRows.map((row) => (
-                        <tr key={row.id} className="border-t border-slate-200">
-                          <td className="px-4 py-3 text-slate-900 font-medium">{row.month}</td>
-                          <td className="px-4 py-3 text-slate-700">{formatKZT(row.amount)}</td>
-                          <td className="px-4 py-3 text-slate-500">{row.uploadId || '—'}</td>
+                        <tr key={row.id}>
+                          <td className="px-4 py-3 text-foreground font-medium">{row.month}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{formatKZT(row.amount)}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{row.uploadId || '—'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -383,7 +397,7 @@ export default function MarketingData() {
                 </div>
               )}
 
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm text-slate-500">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm text-muted-foreground">
                 <span>Показано записей: {filteredRows.length}</span>
                 <span>Всего в хранилище: {marketingRows.length}</span>
               </div>

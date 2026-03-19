@@ -48,7 +48,7 @@ export default function PlanPage() {
 
   return (
     <AppLayout>
-      <div className="rct-page p-4 lg:p-6 space-y-8 max-w-[1400px] mx-auto">
+      <div className="chrona-page">
         <div>
           <h1 className="rct-page-title">План на следующий месяц</h1>
           <p className="rct-body-micro mt-1">
@@ -57,27 +57,27 @@ export default function PlanPage() {
         </div>
 
         {/* Forecast KPIs */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="rct-stat-box-emerald">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <div className="chrona-surface">
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Прогноз выручки</div>
             <div className="text-xl font-bold mt-2 tracking-tight text-foreground">{formatKZT(plan.forecastRevenue)}</div>
           </div>
-          <div className="rct-stat-box-amber">
+          <div className="chrona-surface">
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Прогноз расходов</div>
             <div className="text-xl font-bold mt-2 tracking-tight text-foreground">{formatKZT(plan.forecastExpenses)}</div>
           </div>
-          <div className={plan.forecastProfit >= 0 ? 'rct-stat-box-emerald' : 'rct-stat-box-amber'}>
+          <div className="chrona-surface">
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Прогноз прибыли</div>
             <div className="text-xl font-bold mt-2 tracking-tight text-foreground">{formatKZT(plan.forecastProfit)}</div>
           </div>
         </div>
 
         {/* SWOT cards */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="rct-card rct-card-padding space-y-3">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div className="chrona-surface space-y-3">
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-teal-500 dark:bg-teal-400 shrink-0" />
-              <h3 className="rct-section-title">Сильные стороны</h3>
+              <h3 className="chrona-section-title">Сильные стороны</h3>
             </div>
             {plan.strengths.length > 0 ? plan.strengths.map((item) => (
               <div key={item} className="flex items-start gap-2 text-sm text-muted-foreground">
@@ -87,10 +87,10 @@ export default function PlanPage() {
             )) : <p className="text-sm text-muted-foreground">Пока недостаточно данных.</p>}
           </div>
 
-          <div className="rct-card rct-card-padding space-y-3">
+          <div className="chrona-surface space-y-3">
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-yellow-500 dark:bg-yellow-400 shrink-0" />
-              <h3 className="rct-section-title">Слабые места</h3>
+              <h3 className="chrona-section-title">Слабые места</h3>
             </div>
             {plan.weaknesses.length > 0 ? plan.weaknesses.map((item) => (
               <div key={item} className="flex items-start gap-2 text-sm text-muted-foreground">
@@ -100,10 +100,10 @@ export default function PlanPage() {
             )) : <p className="text-sm text-muted-foreground">Критичных слабых зон не выявлено.</p>}
           </div>
 
-          <div className="rct-card rct-card-padding space-y-3">
+          <div className="chrona-surface space-y-3">
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-rose-500 dark:bg-rose-400 shrink-0" />
-              <h3 className="rct-section-title">Риски</h3>
+              <h3 className="chrona-section-title">Риски</h3>
             </div>
             {plan.risks.length > 0 ? plan.risks.map((item) => (
               <div key={item} className="flex items-start gap-2 text-sm text-muted-foreground">
@@ -115,11 +115,11 @@ export default function PlanPage() {
         </div>
 
         {/* Action plan */}
-        <div className="rct-card-raised rct-card-padding space-y-4">
-          <h2 className="rct-section-title">План действий</h2>
+        <div className="chrona-hero space-y-4">
+          <h2 className="chrona-section-title">План действий</h2>
           <div className="space-y-3">
             {plan.actions.map((action) => (
-              <div key={action.id} className="rct-card-inset p-4 transition-colors hover:bg-muted/50">
+              <div key={action.id} className="chrona-muted-surface transition-colors hover:bg-muted/50">
                 <div className="flex flex-wrap items-center gap-2 mb-2">
                   <Badge variant="outline" className="text-xs font-medium text-muted-foreground">
                     {areaLabel[action.area]}

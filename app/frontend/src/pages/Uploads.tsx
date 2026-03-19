@@ -383,7 +383,7 @@ export default function UploadsPage() {
 
   return (
     <AppLayout>
-      <div className="rct-page p-4 lg:p-6 space-y-8 max-w-[1400px] mx-auto">
+      <div className="chrona-page">
         {/* Header */}
         <div>
           <h1 className="rct-page-title">Центр загрузок</h1>
@@ -393,7 +393,7 @@ export default function UploadsPage() {
         </div>
 
         {/* Progress steps */}
-        <div className="flex items-center gap-2 text-sm">
+        <div className="chrona-surface flex items-center gap-2 text-sm">
           {[
             { key: 'select', label: '1. Файл' },
             { key: 'mapping', label: '2. Маппинг' },
@@ -415,13 +415,13 @@ export default function UploadsPage() {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           {/* Main area */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="lg:col-span-2 space-y-5">
 
             {/* Step 1: File selection */}
             {step === 'select' && (
-              <Card className="rct-card">
+              <Card className="chrona-hero">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <Upload className="h-5 w-5 text-primary" />
@@ -437,7 +437,7 @@ export default function UploadsPage() {
                       className={cn(
                         'p-4 rounded-lg border text-left transition-all',
                         fileType === 'auto'
-                          ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                          ? 'border-primary/50 bg-primary/10 ring-1 ring-primary/40'
                           : 'border-border hover:border-muted-foreground/30',
                       )}
                     >
@@ -452,7 +452,7 @@ export default function UploadsPage() {
                       className={cn(
                         'p-4 rounded-lg border text-left transition-all',
                         fileType !== 'auto'
-                          ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                          ? 'border-primary/50 bg-primary/10 ring-1 ring-primary/40'
                           : 'border-border hover:border-muted-foreground/30',
                       )}
                     >
@@ -479,7 +479,7 @@ export default function UploadsPage() {
                               className={cn(
                                 'p-2.5 rounded-lg border text-left transition-all text-xs',
                                 isSelected
-                                  ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                                  ? 'border-primary/50 bg-primary/10 ring-1 ring-primary/40'
                                   : 'border-border hover:border-muted-foreground/30',
                               )}
                             >
@@ -549,7 +549,7 @@ export default function UploadsPage() {
 
             {/* Step 2: Mapping Confirmation */}
             {step === 'mapping' && detectionResult && (
-              <Card className="rct-card">
+              <Card className="chrona-surface">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <Settings2 className="h-5 w-5 text-primary" />
@@ -562,10 +562,10 @@ export default function UploadsPage() {
                 </CardHeader>
                 <CardContent className="space-y-5">
                   {/* Mapping table */}
-                  <div className="rounded-lg border overflow-hidden">
-                    <table className="w-full text-sm">
+                  <div className="chrona-table">
+                    <table className="text-sm">
                       <thead>
-                        <tr className="bg-muted/30 border-b">
+                        <tr>
                           <th className="text-left px-4 py-2.5 font-medium text-muted-foreground text-xs">Колонка в файле</th>
                           <th className="text-center px-2 py-2.5 font-medium text-muted-foreground text-xs w-10">→</th>
                           <th className="text-left px-4 py-2.5 font-medium text-muted-foreground text-xs">Поле в системе</th>
@@ -574,7 +574,7 @@ export default function UploadsPage() {
                       </thead>
                       <tbody>
                         {editableMappings.map((m) => (
-                          <tr key={m.sourceColumn} className="border-b border-border/30 hover:bg-muted/10">
+                          <tr key={m.sourceColumn}>
                             <td className="px-4 py-2.5">
                               <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{m.sourceColumn}</span>
                             </td>
@@ -622,7 +622,7 @@ export default function UploadsPage() {
 
                   {/* Unmapped columns */}
                   {detectionResult.unmappedSourceColumns.length > 0 && (
-                    <div className="rct-card-inset p-3">
+                    <div className="chrona-muted-surface">
                       <p className="text-xs font-medium text-muted-foreground mb-2">Не сопоставлены (будут пропущены):</p>
                       <div className="flex flex-wrap gap-1.5">
                         {detectionResult.unmappedSourceColumns.map((c) => (
@@ -636,10 +636,10 @@ export default function UploadsPage() {
                   {rawRows.length > 0 && (
                     <div>
                       <p className="text-xs font-medium text-muted-foreground mb-2">Первые строки файла:</p>
-                      <div className="overflow-x-auto max-h-[200px] border rounded-lg">
-                        <table className="w-full text-xs">
+                      <div className="chrona-table max-h-[200px]">
+                        <table className="text-xs">
                           <thead>
-                            <tr className="border-b bg-muted/30 sticky top-0">
+                            <tr className="sticky top-0">
                               {sourceColumns.map((col) => (
                                 <th key={col} className="text-left px-3 py-1.5 font-medium text-muted-foreground whitespace-nowrap">{col}</th>
                               ))}
@@ -647,7 +647,7 @@ export default function UploadsPage() {
                           </thead>
                           <tbody>
                             {rawRows.slice(0, 5).map((row, idx) => (
-                              <tr key={idx} className="border-b border-border/20">
+                              <tr key={idx}>
                                 {sourceColumns.map((col) => (
                                   <td key={col} className="px-3 py-1.5 text-muted-foreground truncate max-w-[120px]">
                                     {row[col] === null || row[col] === undefined ? '—' : String(row[col])}
@@ -673,7 +673,7 @@ export default function UploadsPage() {
 
             {/* Step 3: Preview + Upload */}
             {step === 'preview' && (
-              <Card className="rct-card">
+              <Card className="chrona-surface">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <Eye className="h-5 w-5 text-primary" />
@@ -686,10 +686,10 @@ export default function UploadsPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {preview && preview.length > 0 && (
-                    <div className="overflow-x-auto max-h-[250px] border rounded-lg">
-                      <table className="w-full text-xs">
+                    <div className="chrona-table max-h-[250px]">
+                      <table className="text-xs">
                         <thead>
-                          <tr className="border-b bg-muted/30 sticky top-0">
+                          <tr className="sticky top-0">
                             {Object.keys(preview[0]).slice(0, 8).map(key => (
                               <th key={key} className="text-left px-3 py-1.5 font-medium text-muted-foreground whitespace-nowrap">{key}</th>
                             ))}
@@ -697,7 +697,7 @@ export default function UploadsPage() {
                         </thead>
                         <tbody>
                           {preview.slice(0, 10).map((row, idx) => (
-                            <tr key={idx} className="border-b border-border/20">
+                            <tr key={idx}>
                               {Object.keys(preview[0]).slice(0, 8).map((key) => (
                                 <td key={key} className="px-3 py-1.5 text-muted-foreground truncate max-w-[120px]">
                                   {row[key] === null || row[key] === undefined ? '—' : String(row[key])}
@@ -711,7 +711,7 @@ export default function UploadsPage() {
                   )}
 
                   {errors.length > 0 && (
-                    <div className="rct-card-inset p-3 border-l-[3px] border-l-rose-400/70">
+                    <div className="chrona-muted-surface border-l-[3px] border-l-rose-400/70">
                       <p className="text-xs font-semibold text-rose-600 dark:text-rose-400 mb-2 flex items-center gap-1">
                         <XCircle className="h-3.5 w-3.5" />
                         {errors.length} ошибок валидации
@@ -727,7 +727,7 @@ export default function UploadsPage() {
                   )}
 
                   {warnings.length > 0 && (
-                    <div className="rct-card-inset p-3 border-l-[3px] border-l-amber-400/70">
+                    <div className="chrona-muted-surface border-l-[3px] border-l-amber-400/70">
                       <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-2 flex items-center gap-1">
                         <AlertTriangle className="h-3.5 w-3.5" />
                         {warnings.length} предупреждений
@@ -754,22 +754,22 @@ export default function UploadsPage() {
 
             {/* Step 4: Result */}
             {step === 'done' && result && (
-              <Card className="rct-card border-teal-200/50 dark:border-teal-800/30">
+              <Card className="chrona-surface border-teal-300/40 dark:border-teal-800/30">
                 <CardContent className="p-6">
                   <div className="flex items-center gap-2 mb-5">
                     <CheckCircle2 className="h-6 w-6 text-teal-600 dark:text-teal-400" />
                     <p className="text-lg font-semibold text-teal-700 dark:text-teal-300">Загрузка завершена</p>
                   </div>
                   <div className="grid grid-cols-3 gap-4 mb-5">
-                    <div className="rct-stat-box-slate">
+                    <div className="chrona-muted-surface">
                       <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Всего</div>
                       <div className="text-2xl font-bold text-foreground mt-2">{result.total}</div>
                     </div>
-                    <div className="rct-stat-box-emerald">
+                    <div className="chrona-muted-surface">
                       <div className="text-xs font-medium text-teal-700 dark:text-teal-300 uppercase tracking-wide">Успешно</div>
                       <div className="text-2xl font-bold text-teal-800 dark:text-teal-200 mt-2">{result.success}</div>
                     </div>
-                    <div className={result.errors > 0 ? 'rct-stat-box-amber' : 'rct-stat-box-slate'}>
+                    <div className="chrona-muted-surface">
                       <div className="text-xs font-medium uppercase tracking-wide">Ошибок</div>
                       <div className="text-2xl font-bold mt-2">{result.errors}</div>
                     </div>
@@ -788,7 +788,7 @@ export default function UploadsPage() {
 
           {/* Right sidebar: History */}
           <div className="space-y-6">
-            <Card className="rct-card">
+            <Card className="chrona-surface">
               <CardHeader>
                 <CardTitle className="text-base">История загрузок</CardTitle>
               </CardHeader>
@@ -804,7 +804,7 @@ export default function UploadsPage() {
                       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
                       .slice(0, 10)
                       .map(upload => (
-                        <div key={upload.id} className="border border-border/50 rounded-lg p-3">
+                        <div key={upload.id} className="chrona-muted-surface">
                           <div className="flex items-start justify-between mb-1">
                             <div className="flex items-center gap-2">
                               <FileText className="h-4 w-4 text-muted-foreground/60" />
@@ -837,7 +837,7 @@ export default function UploadsPage() {
             </Card>
 
             {/* Quick help */}
-            <Card className="rct-card">
+            <Card className="chrona-surface">
               <CardHeader>
                 <CardTitle className="text-base">Как это работает</CardTitle>
               </CardHeader>
@@ -862,9 +862,9 @@ export default function UploadsPage() {
                 </div>
                 <div className="mt-3 p-2 bg-muted/30 rounded text-[10px] text-muted-foreground">
                   <p className="font-medium text-foreground mb-1">Примеры маппинга:</p>
-                  <p>"Client Name" → customer_name</p>
-                  <p>"Amount" → revenue</p>
-                  <p>"Source" → marketing_channel</p>
+                  <p>"Клиент" → клиент / контрагент</p>
+                  <p>"Сумма" → сумма операции или счёта</p>
+                  <p>"Источник" → канал маркетинга</p>
                 </div>
               </CardContent>
             </Card>
