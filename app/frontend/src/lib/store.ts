@@ -7,7 +7,9 @@ import type {
   User, Company, Transaction, Customer, Invoice,
   MarketingSpend, Document, Upload, Signal, UserRole,
   DeadlineReminderLog, NotificationSettings,
+  Lead, Deal, ChannelCampaign, Manager, PaymentTransaction,
 } from './types';
+import { generateMvpDemoData } from './demoData';
 
 // --- Helpers ---
 function generateId(): string {
@@ -35,6 +37,11 @@ const KEYS = {
   customers: 'bp_customers',
   invoices: 'bp_invoices',
   marketingSpend: 'bp_marketing_spend',
+  leads: 'bp_leads',
+  deals: 'bp_deals',
+  channelCampaigns: 'bp_channels_campaigns',
+  managers: 'bp_managers',
+  payments: 'bp_payments',
   documents: 'bp_documents',
   uploads: 'bp_uploads',
   signals: 'bp_signals',
@@ -214,6 +221,107 @@ export function addMarketingSpend(companyId: string, spends: Omit<MarketingSpend
 }
 
 // ============================================================
+// MVP: Leads
+// ============================================================
+export function getLeads(companyId: string): Lead[] {
+  return getItem<Lead>(KEYS.leads).filter((l) => l.companyId === companyId);
+}
+
+export function addLeads(companyId: string, leads: Omit<Lead, 'id' | 'companyId'>[]): Lead[] {
+  const all = getItem<Lead>(KEYS.leads);
+  const newLeads: Lead[] = leads.map((l) => ({
+    ...l,
+    id: generateId(),
+    companyId,
+  }));
+  all.push(...newLeads);
+  setItem(KEYS.leads, all);
+  return newLeads;
+}
+
+// ============================================================
+// MVP: Deals
+// ============================================================
+export function getDeals(companyId: string): Deal[] {
+  return getItem<Deal>(KEYS.deals).filter((d) => d.companyId === companyId);
+}
+
+export function addDeals(companyId: string, deals: Omit<Deal, 'id' | 'companyId'>[]): Deal[] {
+  const all = getItem<Deal>(KEYS.deals);
+  const newDeals: Deal[] = deals.map((d) => ({
+    ...d,
+    id: generateId(),
+    companyId,
+  }));
+  all.push(...newDeals);
+  setItem(KEYS.deals, all);
+  return newDeals;
+}
+
+// ============================================================
+// MVP: Channels / Campaigns (combined)
+// ============================================================
+export function getChannelCampaigns(companyId: string): ChannelCampaign[] {
+  return getItem<ChannelCampaign>(KEYS.channelCampaigns).filter((cc) => cc.companyId === companyId);
+}
+
+export function addChannelCampaigns(
+  companyId: string,
+  rows: Omit<ChannelCampaign, 'id' | 'companyId'>[]
+): ChannelCampaign[] {
+  const all = getItem<ChannelCampaign>(KEYS.channelCampaigns);
+  const newRows: ChannelCampaign[] = rows.map((cc) => ({
+    ...cc,
+    id: generateId(),
+    companyId,
+  }));
+  all.push(...newRows);
+  setItem(KEYS.channelCampaigns, all);
+  return newRows;
+}
+
+// ============================================================
+// MVP: Managers
+// ============================================================
+export function getManagers(companyId: string): Manager[] {
+  return getItem<Manager>(KEYS.managers).filter((m) => m.companyId === companyId);
+}
+
+export function addManagers(companyId: string, managers: Omit<Manager, 'id' | 'companyId'>[]): Manager[] {
+  const all = getItem<Manager>(KEYS.managers);
+  const newRows: Manager[] = managers.map((m) => ({
+    ...m,
+    id: generateId(),
+    companyId,
+  }));
+  all.push(...newRows);
+  setItem(KEYS.managers, all);
+  return newRows;
+}
+
+// ============================================================
+// MVP: Payments / Transactions (linked to invoices)
+// ============================================================
+export function getPayments(companyId: string): PaymentTransaction[] {
+  return getItem<PaymentTransaction>(KEYS.payments).filter((p) => p.companyId === companyId);
+}
+
+export function addPayments(
+  companyId: string,
+  payments: Omit<PaymentTransaction, 'id' | 'companyId'>[]
+): PaymentTransaction[] {
+  const all = getItem<PaymentTransaction>(KEYS.payments);
+  const newRows: PaymentTransaction[] = payments.map((p) => ({
+    ...p,
+    id: generateId(),
+    companyId,
+  }));
+  all.push(...newRows);
+  setItem(KEYS.payments, all);
+  return newRows;
+}
+
+// ============================================================
 // Documents
 // ============================================================
 export function getDocuments(companyId: string): Document[] {
@@ -365,74 +473,23 @@ export function wasReminderSent(
 // Seed Data (for demo)
 // ============================================================
 export function seedDemoData(companyId: string): void {
-  const categories = ['Продажи', 'Услуги', 'Аренда', 'Зарплата', 'Маркетинг', 'Коммунальные', 'Логистика', 'IT'];
-  const counterparties = ['ТОО "Алматы Трейд"', 'ИП Касымов', 'ТОО "ТехноПарк"', 'АО "КазМунайГаз"', 'ТОО "Астана Логистик"'];
+  const demo = generateMvpDemoData(companyId);
 
-  const txns: Omit<Transaction, 'id' | 'companyId'>[] = [];
-  const now = new Date();
+  addManagers(companyId, demo.managers);
+  addChannelCampaigns(companyId, demo.channelCampaigns);
+  addCustomers(companyId, demo.customers);
 
-  for (let i = 0; i < 120; i++) {
-    const daysAgo = Math.floor(Math.random() * 180);
-    const d = new Date(now);
-    d.setDate(d.getDate() - daysAgo);
-    const isIncome = Math.random() > 0.45;
+  // Funnel chain data
+  addLeads(companyId, demo.leads);
+  addDeals(companyId, demo.deals);
 
-    txns.push({
-      date: d.toISOString().split('T')[0],
-      amount: Math.round((isIncome ? 50000 + Math.random() * 2000000 : 10000 + Math.random() * 800000) / 100) * 100,
-      direction: isIncome ? 'income' : 'expense',
-      category: isIncome ? categories[Math.floor(Math.random() * 2)] : categories[2 + Math.floor(Math.random() * 6)],
-      counterparty: counterparties[Math.floor(Math.random() * counterparties.length)],
-      description: isIncome ? 'Оплата по договору' : 'Расход по счёту',
-    });
-  }
-  addTransactions(companyId, txns);
+  // Revenue chain data
+  addInvoices(companyId, demo.invoices);
+  addPayments(companyId, demo.payments);
 
-  // Seed customers
-  const custData: Omit<Customer, 'id' | 'companyId'>[] = [
-    { customerExternalId: 'C001', name: 'ТОО "Алматы Трейд"', segment: 'B2B', startDate: '2025-01-15' },
-    { customerExternalId: 'C002', name: 'ИП Касымов', segment: 'SMB', startDate: '2025-03-01' },
-    { customerExternalId: 'C003', name: 'ТОО "ТехноПарк"', segment: 'B2B', startDate: '2025-02-10' },
-    { customerExternalId: 'C004', name: 'АО "КазМунайГаз"', segment: 'Enterprise', startDate: '2024-11-20' },
-    { customerExternalId: 'C005', name: 'ТОО "Астана Логистик"', segment: 'B2B', startDate: '2025-05-01' },
-    { customerExternalId: 'C006', name: 'ИП Нурланова', segment: 'SMB', startDate: '2025-06-15' },
-    { customerExternalId: 'C007', name: 'ТОО "Шымкент Строй"', segment: 'B2B', startDate: '2025-04-01' },
-    { customerExternalId: 'C008', name: 'АО "Казахтелеком"', segment: 'Enterprise', startDate: '2024-09-01' },
-  ];
-  addCustomers(companyId, custData);
+  // Marketing attribution seed
+  addMarketingSpend(companyId, demo.marketingSpend);
 
-  // Seed invoices
-  const invData: Omit<Invoice, 'id' | 'companyId'>[] = [];
-  for (const cust of custData) {
-    const numInvoices = 2 + Math.floor(Math.random() * 4);
-    for (let j = 0; j < numInvoices; j++) {
-      const daysAgo = Math.floor(Math.random() * 150);
-      const d = new Date(now);
-      d.setDate(d.getDate() - daysAgo);
-      const isPaid = Math.random() > 0.3;
-      const paidD = new Date(d);
-      paidD.setDate(paidD.getDate() + Math.floor(Math.random() * 30));
-
-      invData.push({
-        invoiceDate: d.toISOString().split('T')[0],
-        customerExternalId: cust.customerExternalId,
-        amount: Math.round((100000 + Math.random() * 1500000) / 100) * 100,
-        status: isPaid ? 'paid' : 'unpaid',
-        paidDate: isPaid ? paidD.toISOString().split('T')[0] : undefined,
-      });
-    }
-  }
-  addInvoices(companyId, invData);
-
-  // Seed marketing spend
-  const mktData: Omit<MarketingSpend, 'id' | 'companyId'>[] = [];
-  for (let m = 0; m < 6; m++) {
-    const d = new Date(now);
-    d.setMonth(d.getMonth() - m);
-    mktData.push({
-      month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-      amount: Math.round((200000 + Math.random() * 500000) / 100) * 100,
-    });
-  }
-  addMarketingSpend(companyId, mktData);
+  // Backward-compatible finance transactions (income comes from demo payments)
+  addTransactions(companyId, demo.transactions);
 }

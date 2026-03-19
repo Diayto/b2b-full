@@ -149,27 +149,25 @@ export default function DocumentsPage() {
 
   return (
     <AppLayout>
-      <div className="p-4 lg:p-6 space-y-6 max-w-[1200px] mx-auto">
+      <div className="rct-page p-4 lg:p-6 space-y-8 max-w-[1400px] mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">Документы</h1>
-            <p className="text-sm text-slate-500 mt-1">
-              Договора и файлы компании (PDF, DOCX)
-            </p>
-          </div>
+        <div>
+          <h1 className="rct-page-title">Документы</h1>
+          <p className="rct-body-micro mt-1">
+            Договора и файлы компании — PDF, DOCX
+          </p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Upload Form */}
-          <Card className="border-slate-200 shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
+          <Card className="rct-card">
+            <CardHeader className="rct-card-padding pb-3">
+              <CardTitle className="rct-section-title flex items-center gap-2">
                 <Upload className="h-5 w-5 text-[#1E3A5F]" />
                 Загрузить документ
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="rct-card-padding pt-0 space-y-4">
               <div className="space-y-2">
                 <Label>Название</Label>
                 <Input
@@ -225,10 +223,10 @@ export default function DocumentsPage() {
               </div>
               <label
                 htmlFor="doc-input"
-                className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:border-[#1E3A5F] hover:bg-[#1E3A5F]/5 transition-all"
+                className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-primary hover:bg-primary/5 transition-all"
               >
-                <FileText className="h-8 w-8 text-slate-400 mb-1" />
-                <p className="text-xs text-slate-500">PDF или DOCX</p>
+                <FileText className="h-8 w-8 text-muted-foreground/60 mb-1" />
+                <p className="text-xs text-muted-foreground">PDF или DOCX</p>
                 <input
                   id="doc-input"
                   type="file"
@@ -239,7 +237,7 @@ export default function DocumentsPage() {
                 />
               </label>
               {uploading && (
-                <p className="text-xs text-slate-500 text-center">Обработка документа...</p>
+                <p className="text-xs text-muted-foreground text-center">Обработка документа...</p>
               )}
             </CardContent>
           </Card>
@@ -247,11 +245,11 @@ export default function DocumentsPage() {
           {/* Documents List */}
           <div className="lg:col-span-2">
             {documents.length === 0 ? (
-              <Card className="border-slate-200 shadow-sm">
+              <Card className="rct-card">
                 <CardContent className="py-16 text-center">
-                  <FileText className="h-12 w-12 text-slate-300 mx-auto mb-4" />
-                  <p className="text-sm font-medium text-slate-600">Нет документов</p>
-                  <p className="text-xs text-slate-400 mt-1">Загрузите PDF или DOCX файл</p>
+                  <FileText className="h-12 w-12 text-muted-foreground/40 mx-auto mb-4" />
+                  <p className="text-sm font-medium text-muted-foreground">Нет документов</p>
+                  <p className="text-xs text-muted-foreground/60 mt-1">Загрузите PDF или DOCX файл</p>
                 </CardContent>
               </Card>
             ) : (
@@ -261,10 +259,10 @@ export default function DocumentsPage() {
                   .map(doc => (
                     <Card
                       key={doc.id}
-                      className={`border shadow-sm hover:shadow-md transition-shadow cursor-pointer ${
+                      className={`rct-card transition-shadow hover:shadow-md cursor-pointer ${
                         isExpired(doc.endDate) ? 'border-red-200 bg-red-50/30' :
                         isDeadlineSoon(doc.endDate) ? 'border-amber-200 bg-amber-50/30' :
-                        'border-slate-200'
+                        ''
                       }`}
                     >
                       <CardContent className="p-4">
@@ -279,7 +277,7 @@ export default function DocumentsPage() {
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2 mb-1">
-                                <h4 className="text-sm font-semibold text-slate-900 truncate">
+                                <h4 className="text-sm font-semibold text-foreground truncate">
                                   {doc.title}
                                 </h4>
                                 <Badge variant="outline" className="text-xs shrink-0">
@@ -292,7 +290,7 @@ export default function DocumentsPage() {
                                 )}
                               </div>
 
-                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                                 {doc.counterparty && (
                                   <span className="flex items-center gap-1">
                                     <Building2 className="h-3 w-3" />
@@ -308,7 +306,7 @@ export default function DocumentsPage() {
                                 {doc.endDate && (
                                   <span className={`flex items-center gap-1 ${
                                     isExpired(doc.endDate) ? 'text-red-600 font-medium' :
-                                    isDeadlineSoon(doc.endDate) ? 'text-amber-600 font-medium' :
+                                    isDeadlineSoon(doc.endDate) ? 'text-yellow-600 dark:text-yellow-400 font-medium' :
                                     ''
                                   }`}>
                                     {isExpired(doc.endDate) ? (
@@ -354,42 +352,42 @@ export default function DocumentsPage() {
                                 <div className="space-y-3 text-sm">
                                   <div className="grid grid-cols-2 gap-3">
                                     <div>
-                                      <p className="text-xs text-slate-500">Файл</p>
+                                      <p className="text-xs text-muted-foreground">Файл</p>
                                       <p className="font-medium">{doc.fileName}</p>
                                     </div>
                                     <div>
-                                      <p className="text-xs text-slate-500">Тип</p>
+                                      <p className="text-xs text-muted-foreground">Тип</p>
                                       <p className="font-medium">{doc.fileType.toUpperCase()}</p>
                                     </div>
                                     {doc.counterparty && (
                                       <div>
-                                        <p className="text-xs text-slate-500">Контрагент</p>
+                                        <p className="text-xs text-muted-foreground">Контрагент</p>
                                         <p className="font-medium">{doc.counterparty}</p>
                                       </div>
                                     )}
                                     {doc.amount && (
                                       <div>
-                                        <p className="text-xs text-slate-500">Сумма</p>
+                                        <p className="text-xs text-muted-foreground">Сумма</p>
                                         <p className="font-medium">{formatKZT(doc.amount)}</p>
                                       </div>
                                     )}
                                     {doc.startDate && (
                                       <div>
-                                        <p className="text-xs text-slate-500">Начало</p>
+                                        <p className="text-xs text-muted-foreground">Начало</p>
                                         <p className="font-medium">{new Date(doc.startDate).toLocaleDateString('ru-KZ')}</p>
                                       </div>
                                     )}
                                     {doc.endDate && (
                                       <div>
-                                        <p className="text-xs text-slate-500">Дедлайн</p>
+                                        <p className="text-xs text-muted-foreground">Дедлайн</p>
                                         <p className="font-medium">{new Date(doc.endDate).toLocaleDateString('ru-KZ')}</p>
                                       </div>
                                     )}
                                   </div>
                                   {doc.extractedText && (
                                     <div>
-                                      <p className="text-xs text-slate-500 mb-1">Извлечённый текст</p>
-                                      <div className="bg-slate-50 rounded-lg p-3 max-h-[200px] overflow-y-auto text-xs text-slate-600 whitespace-pre-wrap">
+                                      <p className="text-xs text-muted-foreground mb-1">Извлечённый текст</p>
+                                      <div className="bg-muted rounded-lg p-3 max-h-[200px] overflow-y-auto text-xs text-muted-foreground whitespace-pre-wrap">
                                         {doc.extractedText.substring(0, 2000)}
                                         {doc.extractedText.length > 2000 && '...'}
                                       </div>
@@ -453,7 +451,7 @@ export default function DocumentsPage() {
               </div>
               <div className="flex justify-end gap-3">
                 <Button variant="outline" onClick={() => setEditMode(false)}>Отмена</Button>
-                <Button onClick={handleSaveEdit} className="bg-[#1E3A5F] hover:bg-[#1E3A5F]/90">
+                <Button onClick={handleSaveEdit} className="bg-primary hover:bg-primary/90">
                   Сохранить
                 </Button>
               </div>

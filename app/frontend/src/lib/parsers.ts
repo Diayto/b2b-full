@@ -8,13 +8,25 @@ import type {
   FileType, ValidationError,
   ParsedTransactionRow, ParsedCustomerRow,
   ParsedInvoiceRow, ParsedMarketingSpendRow,
+  ParsedLeadRow, ParsedDealRow, ParsedPaymentRow,
+  ParsedChannelCampaignRow, ParsedManagerRow,
 } from './types';
 
-export type ParsedRow = ParsedTransactionRow | ParsedCustomerRow | ParsedInvoiceRow | ParsedMarketingSpendRow;
+export type ParsedRow =
+  | ParsedTransactionRow
+  | ParsedCustomerRow
+  | ParsedInvoiceRow
+  | ParsedMarketingSpendRow
+  | ParsedLeadRow
+  | ParsedDealRow
+  | ParsedPaymentRow
+  | ParsedChannelCampaignRow
+  | ParsedManagerRow;
 
 export interface ParseResult {
   rows: ParsedRow[];
   errors: ValidationError[];
+  warnings?: { row: number; field: string; message: string }[];
   preview: Record<string, unknown>[];
   totalRows: number;
 }
@@ -102,10 +114,72 @@ const FIELD_ALIASES: Record<FileType, Record<string, string[]>> = {
     amount: ['amount', 'sum', 'value', 'сумма'],
     status: ['status', 'state', 'статус'],
     paidDate: ['paiddate', 'paymentdate', 'датаоплаты'],
+    dueDate: ['duedate', 'duedatepayment', 'paymentduedate', 'dateofduedate', 'дедлайн', 'дедлайни'],
+    dealExternalId: ['dealexternalid', 'dealid', 'idсделки', 'iddeal'],
+    invoiceExternalId: ['invoiceexternalid', 'invoiceid', 'invoicenumber', 'number', 'idсчета', 'idscheta'],
   },
   marketing_spend: {
     month: ['month', 'period', 'месяц'],
     amount: ['amount', 'sum', 'value', 'сумма'],
+    channelCampaignExternalId: [
+      'channelcampaignexternalid',
+      'channelcampaignid',
+      'campaignexternalid',
+      'channelexternalid',
+      'sourceexternalid',
+      'sourceid',
+      'idsource',
+    ],
+  },
+  leads: {
+    leadExternalId: ['leadexternalid', 'leadid', 'idлида', 'idlead', 'lead_id'],
+    name: ['name', 'leadname', 'lead', 'имя', 'название'],
+    channelCampaignExternalId: [
+      'channelcampaignexternalid',
+      'channelcampaignid',
+      'campaignexternalid',
+      'channelexternalid',
+      'sourceexternalid',
+      'sourceid',
+    ],
+    managerExternalId: ['managerexternalid', 'managerid', 'salesrepid', 'repid', 'idменеджера'],
+    createdDate: ['createddate', 'leaddate', 'date', 'дата', 'датасоздания'],
+    status: ['status', 'state', 'статус', 'stage', 'этап'],
+  },
+  deals: {
+    dealExternalId: ['dealexternalid', 'dealid', 'idсделки', 'iddeal', 'deal_id'],
+    leadExternalId: ['leadexternalid', 'leadid', 'idлида', 'idlead', 'lead_id'],
+    customerExternalId: ['customerexternalid', 'customerid', 'clientid', 'idклиента'],
+    managerExternalId: ['managerexternalid', 'managerid', 'salesrepid', 'repid', 'idменеджера'],
+    createdDate: ['createddate', 'dealdate', 'date', 'дата', 'датасделки'],
+    expectedCloseDate: ['expectedclosedate', 'closeexpecteddate', 'closedate', 'expectedclose', 'ожидаемаядата'],
+    lastActivityDate: ['lastactivitydate', 'activitydate', 'lastactivity', 'lastupdated', 'последняяактивность'],
+    status: ['status', 'state', 'статус', 'stage', 'этап'],
+    wonDate: ['wondate', 'dealwon', 'closedwon', 'датаwon', 'датаокончания'],
+  },
+  payments: {
+    invoiceExternalId: ['invoiceexternalid', 'invoiceid', 'invoicenumber', 'number', 'idсчета', 'idscheta'],
+    paymentDate: ['paymentdate', 'date', 'оплата', 'payment'],
+    amount: ['amount', 'sum', 'value', 'total', 'сумма'],
+    paymentExternalId: ['paymentexternalid', 'paymentid', 'idплатежа', 'transactionid', 'txnid'],
+  },
+  channels_campaigns: {
+    channelCampaignExternalId: [
+      'channelcampaignexternalid',
+      'channelcampaignid',
+      'sourceexternalid',
+      'sourceid',
+      'idисточника',
+      'campaignid',
+      'channelexternalid',
+    ],
+    name: ['name', 'title', 'название', 'source', 'channelcampaign'],
+    channelName: ['channelname', 'channel', 'канал'],
+    campaignName: ['campaignname', 'campaign', 'кампания'],
+  },
+  managers: {
+    managerExternalId: ['managerexternalid', 'managerid', 'salesrepid', 'repid', 'idменеджера'],
+    name: ['name', 'fullname', 'менеджер', 'имя', 'rep', 'salesrep'],
   },
 };
 
@@ -203,6 +277,7 @@ function parseCustomers(rows: Record<string, unknown>[]): ParseResult {
 function parseInvoices(rows: Record<string, unknown>[]): ParseResult {
   const parsed: ParsedInvoiceRow[] = [];
   const errors: ValidationError[] = [];
+  const warnings: { row: number; field: string; message: string }[] = [];
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
@@ -232,15 +307,49 @@ function parseInvoices(rows: Record<string, unknown>[]): ParseResult {
       amount: Number(row.amount),
       status: status as 'paid' | 'unpaid',
       paidDate: row.paidDate && isValidDate(row.paidDate) ? toDateString(row.paidDate) : undefined,
+      dueDate: row.dueDate && isValidDate(row.dueDate) ? toDateString(row.dueDate) : undefined,
+      dealExternalId: row.dealExternalId ? String(row.dealExternalId).trim() : undefined,
+      invoiceExternalId: row.invoiceExternalId ? String(row.invoiceExternalId).trim() : undefined,
     });
+
+    // Relational / MVP warnings (non-blocking for compatibility)
+    const computedDueDate =
+      row.dueDate && isValidDate(row.dueDate) ? toDateString(row.dueDate) : undefined;
+    const computedPaidDate =
+      row.paidDate && isValidDate(row.paidDate) ? toDateString(row.paidDate) : undefined;
+    const computedInvoiceExternalId =
+      row.invoiceExternalId ? String(row.invoiceExternalId).trim() : undefined;
+
+    if (!computedDueDate) {
+      warnings.push({
+        row: rowNum,
+        field: 'dueDate',
+        message: 'Нет due date: метрики “ожидаемый приток/просрочка” будут неполными.',
+      });
+    }
+    if (!computedInvoiceExternalId) {
+      warnings.push({
+        row: rowNum,
+        field: 'invoiceExternalId',
+        message: 'Нет invoiceExternalId: связать платежи будет сложнее.',
+      });
+    }
+    if (status === 'paid' && !computedPaidDate) {
+      warnings.push({
+        row: rowNum,
+        field: 'paidDate',
+        message: 'Счёт помечен как paid, но paidDate не указан. Уточните дату оплаты.',
+      });
+    }
   }
 
-  return { rows: parsed, errors, preview: rows.slice(0, 20), totalRows: rows.length };
+  return { rows: parsed, errors, warnings: warnings.length > 0 ? warnings : undefined, preview: rows.slice(0, 20), totalRows: rows.length };
 }
 
 function parseMarketingSpend(rows: Record<string, unknown>[]): ParseResult {
   const parsed: ParsedMarketingSpendRow[] = [];
   const errors: ValidationError[] = [];
+  const warnings: { row: number; field: string; message: string }[] = [];
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
@@ -258,6 +367,230 @@ function parseMarketingSpend(rows: Record<string, unknown>[]): ParseResult {
     parsed.push({
       month: String(row.month),
       amount: Number(row.amount),
+      channelCampaignExternalId: row.channelCampaignExternalId ? String(row.channelCampaignExternalId).trim() : undefined,
+    });
+
+    if (!row.channelCampaignExternalId || String(row.channelCampaignExternalId).trim() === '') {
+      warnings.push({
+        row: rowNum,
+        field: 'channelCampaignExternalId',
+        message: 'Нет связки с каналом/кампанией: CAC/CPL/атрибуция по источникам будут неполными.',
+      });
+    }
+  }
+
+  return { rows: parsed, errors, warnings: warnings.length > 0 ? warnings : undefined, preview: rows.slice(0, 20), totalRows: rows.length };
+}
+
+function parseLeads(rows: Record<string, unknown>[]): ParseResult {
+  const parsed: ParsedLeadRow[] = [];
+  const errors: ValidationError[] = [];
+  const warnings: { row: number; field: string; message: string }[] = [];
+
+  const allowedStatuses = new Set(['new', 'qualified', 'converted', 'lost']);
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNum = i + 2;
+
+    if (!row.leadExternalId || String(row.leadExternalId).trim() === '') {
+      errors.push({ row: rowNum, field: 'leadExternalId', message: 'ID лида обязателен' });
+      continue;
+    }
+
+    if (row.createdDate && !isValidDate(row.createdDate)) {
+      errors.push({ row: rowNum, field: 'createdDate', message: 'Неверный формат даты (ожидается YYYY-MM-DD)' });
+      continue;
+    }
+
+    let status: string | undefined = undefined;
+    if (row.status !== undefined && row.status !== null && String(row.status).trim() !== '') {
+      status = String(row.status).toLowerCase();
+      if (!allowedStatuses.has(status)) {
+        errors.push({ row: rowNum, field: 'status', message: 'Статус должен быть одним из: new, qualified, converted, lost' });
+        continue;
+      }
+    }
+
+    const computedChannelCampaignExternalId =
+      row.channelCampaignExternalId ? String(row.channelCampaignExternalId).trim() : undefined;
+    parsed.push({
+      leadExternalId: String(row.leadExternalId).trim(),
+      name: row.name ? String(row.name).trim() : undefined,
+      channelCampaignExternalId: computedChannelCampaignExternalId,
+      managerExternalId: row.managerExternalId ? String(row.managerExternalId).trim() : undefined,
+      createdDate: row.createdDate && isValidDate(row.createdDate) ? toDateString(row.createdDate) : undefined,
+      status: status as ParsedLeadRow['status'] | undefined,
+    });
+
+    if (!computedChannelCampaignExternalId) {
+      warnings.push({
+        row: rowNum,
+        field: 'channelCampaignExternalId',
+        message: 'Нет источника (канал/кампания): атрибуция выручки по источникам будет неполной.',
+      });
+    }
+  }
+
+  return { rows: parsed, errors, warnings: warnings.length > 0 ? warnings : undefined, preview: rows.slice(0, 20), totalRows: rows.length };
+}
+
+function parseDeals(rows: Record<string, unknown>[]): ParseResult {
+  const parsed: ParsedDealRow[] = [];
+  const errors: ValidationError[] = [];
+  const warnings: { row: number; field: string; message: string }[] = [];
+
+  const allowedStatuses = new Set(['open', 'won', 'lost']);
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNum = i + 2;
+
+    if (!row.dealExternalId || String(row.dealExternalId).trim() === '') {
+      errors.push({ row: rowNum, field: 'dealExternalId', message: 'ID сделки обязателен' });
+      continue;
+    }
+
+    if (row.createdDate && !isValidDate(row.createdDate)) {
+      errors.push({ row: rowNum, field: 'createdDate', message: 'Неверный формат даты (ожидается YYYY-MM-DD)' });
+      continue;
+    }
+    if (row.expectedCloseDate && !isValidDate(row.expectedCloseDate)) {
+      errors.push({ row: rowNum, field: 'expectedCloseDate', message: 'Неверный формат ожидаемой даты (ожидается YYYY-MM-DD)' });
+      continue;
+    }
+    if (row.lastActivityDate && !isValidDate(row.lastActivityDate)) {
+      errors.push({ row: rowNum, field: 'lastActivityDate', message: 'Неверный формат даты активности (ожидается YYYY-MM-DD)' });
+      continue;
+    }
+    if (row.wonDate && !isValidDate(row.wonDate)) {
+      errors.push({ row: rowNum, field: 'wonDate', message: 'Неверный формат даты won (ожидается YYYY-MM-DD)' });
+      continue;
+    }
+
+    let status: string | undefined = undefined;
+    if (row.status !== undefined && row.status !== null && String(row.status).trim() !== '') {
+      status = String(row.status).toLowerCase();
+      if (!allowedStatuses.has(status)) {
+        errors.push({ row: rowNum, field: 'status', message: 'Статус сделки должен быть одним из: open, won, lost' });
+        continue;
+      }
+    }
+
+    const computedLeadExternalId = row.leadExternalId ? String(row.leadExternalId).trim() : undefined;
+    const computedWonDate = row.wonDate && isValidDate(row.wonDate) ? toDateString(row.wonDate) : undefined;
+
+    parsed.push({
+      dealExternalId: String(row.dealExternalId).trim(),
+      leadExternalId: computedLeadExternalId,
+      customerExternalId: row.customerExternalId ? String(row.customerExternalId).trim() : undefined,
+      managerExternalId: row.managerExternalId ? String(row.managerExternalId).trim() : undefined,
+      createdDate: row.createdDate && isValidDate(row.createdDate) ? toDateString(row.createdDate) : undefined,
+      expectedCloseDate: row.expectedCloseDate && isValidDate(row.expectedCloseDate) ? toDateString(row.expectedCloseDate) : undefined,
+      lastActivityDate: row.lastActivityDate && isValidDate(row.lastActivityDate) ? toDateString(row.lastActivityDate) : undefined,
+      status: status as ParsedDealRow['status'] | undefined,
+      wonDate: computedWonDate,
+    });
+
+    if (status === 'won' && !computedWonDate) {
+      warnings.push({
+        row: rowNum,
+        field: 'wonDate',
+        message: 'Сделка помечена как won, но wonDate не указан.',
+      });
+    }
+    if (!computedLeadExternalId) {
+      warnings.push({
+        row: rowNum,
+        field: 'leadExternalId',
+        message: 'Нет связки со лидом: воронка “канал/кампания → лид → сделка” будет неполной.',
+      });
+    }
+  }
+
+  return { rows: parsed, errors, warnings: warnings.length > 0 ? warnings : undefined, preview: rows.slice(0, 20), totalRows: rows.length };
+}
+
+function parsePayments(rows: Record<string, unknown>[]): ParseResult {
+  const parsed: ParsedPaymentRow[] = [];
+  const errors: ValidationError[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNum = i + 2;
+
+    if (!row.invoiceExternalId || String(row.invoiceExternalId).trim() === '') {
+      errors.push({ row: rowNum, field: 'invoiceExternalId', message: 'ID счёта (invoiceExternalId) обязателен' });
+      continue;
+    }
+    if (!row.paymentDate || !isValidDate(row.paymentDate)) {
+      errors.push({ row: rowNum, field: 'paymentDate', message: 'Неверный формат даты оплаты (ожидается YYYY-MM-DD)' });
+      continue;
+    }
+    if (!isPositiveNumber(row.amount)) {
+      errors.push({ row: rowNum, field: 'amount', message: 'Сумма должна быть положительным числом' });
+      continue;
+    }
+
+    parsed.push({
+      paymentExternalId: row.paymentExternalId ? String(row.paymentExternalId).trim() : undefined,
+      invoiceExternalId: String(row.invoiceExternalId).trim(),
+      paymentDate: toDateString(row.paymentDate),
+      amount: Number(row.amount),
+    });
+  }
+
+  return { rows: parsed, errors, preview: rows.slice(0, 20), totalRows: rows.length };
+}
+
+function parseChannelsCampaigns(rows: Record<string, unknown>[]): ParseResult {
+  const parsed: ParsedChannelCampaignRow[] = [];
+  const errors: ValidationError[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNum = i + 2;
+
+    if (!row.channelCampaignExternalId || String(row.channelCampaignExternalId).trim() === '') {
+      errors.push({ row: rowNum, field: 'channelCampaignExternalId', message: 'ID источника/кампании обязателен' });
+      continue;
+    }
+    if (!row.name || String(row.name).trim() === '') {
+      errors.push({ row: rowNum, field: 'name', message: 'Название обязательно' });
+      continue;
+    }
+
+    parsed.push({
+      channelCampaignExternalId: String(row.channelCampaignExternalId).trim(),
+      name: String(row.name).trim(),
+      channelName: row.channelName ? String(row.channelName).trim() : undefined,
+      campaignName: row.campaignName ? String(row.campaignName).trim() : undefined,
+    });
+  }
+
+  return { rows: parsed, errors, preview: rows.slice(0, 20), totalRows: rows.length };
+}
+
+function parseManagers(rows: Record<string, unknown>[]): ParseResult {
+  const parsed: ParsedManagerRow[] = [];
+  const errors: ValidationError[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNum = i + 2;
+
+    if (!row.managerExternalId || String(row.managerExternalId).trim() === '') {
+      errors.push({ row: rowNum, field: 'managerExternalId', message: 'ID менеджера обязателен' });
+      continue;
+    }
+    if (!row.name || String(row.name).trim() === '') {
+      errors.push({ row: rowNum, field: 'name', message: 'Имя обязательно' });
+      continue;
+    }
+
+    parsed.push({
+      managerExternalId: String(row.managerExternalId).trim(),
+      name: String(row.name).trim(),
     });
   }
 
@@ -277,6 +610,16 @@ export async function parseFile(file: File, fileType: FileType): Promise<ParseRe
       return parseInvoices(rows);
     case 'marketing_spend':
       return parseMarketingSpend(rows);
+    case 'leads':
+      return parseLeads(rows);
+    case 'deals':
+      return parseDeals(rows);
+    case 'payments':
+      return parsePayments(rows);
+    case 'channels_campaigns':
+      return parseChannelsCampaigns(rows);
+    case 'managers':
+      return parseManagers(rows);
     default:
       throw new Error(`Неизвестный тип файла: ${fileType}`);
   }
@@ -285,7 +628,17 @@ export async function parseFile(file: File, fileType: FileType): Promise<ParseRe
 export async function parseFileAuto(file: File): Promise<AutoParseResult> {
   const rawRows = await fileToRows(file);
 
-  const attempts = (['transactions', 'customers', 'invoices', 'marketing_spend'] as const).map((type) => {
+  const attempts = ([
+    'transactions',
+    'customers',
+    'invoices',
+    'marketing_spend',
+    'leads',
+    'deals',
+    'payments',
+    'channels_campaigns',
+    'managers',
+  ] as const).map((type) => {
     const rows = normalizeRowsForType(rawRows, type);
     let result: ParseResult;
     switch (type) {
@@ -300,6 +653,21 @@ export async function parseFileAuto(file: File): Promise<AutoParseResult> {
         break;
       case 'marketing_spend':
         result = parseMarketingSpend(rows);
+        break;
+      case 'leads':
+        result = parseLeads(rows);
+        break;
+      case 'deals':
+        result = parseDeals(rows);
+        break;
+      case 'payments':
+        result = parsePayments(rows);
+        break;
+      case 'channels_campaigns':
+        result = parseChannelsCampaigns(rows);
+        break;
+      case 'managers':
+        result = parseManagers(rows);
         break;
     }
 
@@ -353,7 +721,7 @@ export async function extractDocumentText(file: File): Promise<{ text: string; e
         const page = await pdf.getPage(i);
         const content = await page.getTextContent();
         const pageText = content.items
-          .map((item: { str?: string }) => ('str' in item ? item.str : ''))
+          .map((item) => ('str' in item ? (item as { str?: string }).str : ''))
           .join(' ');
         fullText += pageText + '\n';
       }

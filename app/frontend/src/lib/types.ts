@@ -59,6 +59,13 @@ export interface Invoice {
   amount: number;
   status: InvoiceStatus;
   paidDate?: string;
+  // Used by the MVP "expected inflow" + "overdue invoices" logic.
+  // Kept optional for backward compatibility with existing imports/demo data.
+  dueDate?: string; // YYYY-MM-DD
+  // Used by the MVP attribution chain (deal -> invoice -> payment).
+  dealExternalId?: string;
+  // External identifier from imported files (optional until imports are upgraded).
+  invoiceExternalId?: string;
   uploadId?: string;
 }
 
@@ -67,6 +74,78 @@ export interface MarketingSpend {
   id: string;
   companyId: string;
   month: string; // YYYY-MM
+  amount: number;
+  // Links marketing spend to a specific channel/campaign (combined entity).
+  // Kept optional until demo/imports generate these fields.
+  channelCampaignExternalId?: string;
+  uploadId?: string;
+}
+
+// --- Channel / Campaign (combined for MVP) ---
+export interface ChannelCampaign {
+  id: string;
+  companyId: string;
+  channelCampaignExternalId: string;
+  // Owner-friendly names; can be derived from external columns during import.
+  name: string;
+  channelName?: string;
+  campaignName?: string;
+  createdAt?: string;
+  uploadId?: string;
+}
+
+// --- Managers (sales reps / managers) ---
+export interface Manager {
+  id: string;
+  companyId: string;
+  managerExternalId: string;
+  name: string;
+  uploadId?: string;
+}
+
+// --- Leads ---
+export type LeadStatus = 'new' | 'qualified' | 'converted' | 'lost';
+
+export interface Lead {
+  id: string;
+  companyId: string;
+  leadExternalId: string;
+  name?: string;
+  // Links lead to marketing source (channel/campaign).
+  channelCampaignExternalId?: string;
+  // Optional: helps sales priorities by responsibility.
+  managerExternalId?: string;
+  createdDate?: string; // YYYY-MM-DD
+  status?: LeadStatus;
+  uploadId?: string;
+}
+
+// --- Deals ---
+export type DealStatus = 'open' | 'won' | 'lost';
+
+export interface Deal {
+  id: string;
+  companyId: string;
+  dealExternalId: string;
+  // May originate from a lead (optional to support partial imports).
+  leadExternalId?: string;
+  customerExternalId?: string;
+  managerExternalId?: string;
+  createdDate?: string; // YYYY-MM-DD
+  expectedCloseDate?: string; // YYYY-MM-DD
+  lastActivityDate?: string; // YYYY-MM-DD
+  status?: DealStatus;
+  wonDate?: string; // YYYY-MM-DD
+  uploadId?: string;
+}
+
+// --- Payments / Transactions (linked to invoices) ---
+export interface PaymentTransaction {
+  id: string;
+  companyId: string;
+  paymentExternalId?: string;
+  invoiceExternalId?: string;
+  paymentDate?: string; // YYYY-MM-DD
   amount: number;
   uploadId?: string;
 }
@@ -89,7 +168,19 @@ export interface Document {
 }
 
 // --- Uploads ---
-export type FileType = 'transactions' | 'customers' | 'invoices' | 'marketing_spend';
+// MVP entity types:
+// - we keep the existing 4 types for backward compatibility
+// - new types are added for the revenue control tower chain
+export type FileType =
+  | 'transactions'
+  | 'customers'
+  | 'invoices'
+  | 'marketing_spend'
+  | 'leads'
+  | 'deals'
+  | 'payments'
+  | 'channels_campaigns'
+  | 'managers';
 export type UploadStatus = 'pending' | 'processing' | 'completed' | 'error';
 
 export interface Upload {
@@ -102,10 +193,17 @@ export interface Upload {
   successRows: number;
   errorRows: number;
   errors: ValidationError[];
+  warnings?: ValidationWarning[];
   createdAt: string;
 }
 
 export interface ValidationError {
+  row: number;
+  field: string;
+  message: string;
+}
+
+export interface ValidationWarning {
   row: number;
   field: string;
   message: string;
@@ -256,10 +354,54 @@ export interface ParsedInvoiceRow {
   amount: number;
   status: InvoiceStatus;
   paidDate?: string;
+  dueDate?: string; // YYYY-MM-DD
+  dealExternalId?: string;
+  invoiceExternalId?: string;
 }
 
 export interface ParsedMarketingSpendRow {
   month: string;
+  amount: number;
+  channelCampaignExternalId?: string;
+}
+
+export interface ParsedChannelCampaignRow {
+  channelCampaignExternalId: string;
+  name: string;
+  channelName?: string;
+  campaignName?: string;
+}
+
+export interface ParsedManagerRow {
+  managerExternalId: string;
+  name: string;
+}
+
+export interface ParsedLeadRow {
+  leadExternalId: string;
+  name?: string;
+  channelCampaignExternalId?: string;
+  managerExternalId?: string;
+  createdDate?: string; // YYYY-MM-DD
+  status?: LeadStatus;
+}
+
+export interface ParsedDealRow {
+  dealExternalId: string;
+  leadExternalId?: string;
+  customerExternalId?: string;
+  managerExternalId?: string;
+  createdDate?: string;
+  expectedCloseDate?: string;
+  lastActivityDate?: string;
+  status?: DealStatus;
+  wonDate?: string;
+}
+
+export interface ParsedPaymentRow {
+  paymentExternalId?: string;
+  invoiceExternalId?: string;
+  paymentDate?: string; // YYYY-MM-DD
   amount: number;
 }
 

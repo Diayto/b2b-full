@@ -2,43 +2,108 @@
 // BizPulse KZ — Executive Finance Dashboard
 // ============================================================
 
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
-import KPICard from '@/components/KPICard';
-import SignalsPanel from '@/components/SignalsPanel';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+// lucide-react icons used indirectly via ControlTowerKpiCard delta
 import {
-  DollarSign, TrendingUp, TrendingDown, Percent, ArrowDownUp,
-  Users, Target, BarChart3, Download, AlertCircle,
-} from 'lucide-react';
-import {
-  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-} from 'recharts';
-import {
-  getSession, getTransactions, getCustomers, getInvoices,
-  getMarketingSpend, getDocuments, getSignals, setSignals,
-  closeSignal as closeSignalInStore, seedDemoData,
+  getSession,
+  getCustomers,
+  getInvoices,
+  getMarketingSpend,
+  getPayments,
+  getChannelCampaigns,
+  getLeads,
+  getDeals,
+  getManagers,
+  seedDemoData,
+  getUploads,
 } from '@/lib/store';
 import {
-  calculateFinancialSummary, calculateCashflow, calculateCategoryBreakdown,
-  calculateInvestorMetrics, calculateUnpaidInvoices, generateSignals, formatKZT,
+  formatKZT,
 } from '@/lib/metrics';
-import type { AggregationPeriod, DateRange, Signal } from '@/lib/types';
+import type { DateRange } from '@/lib/types';
+import { calculateRevenueControlTowerAnalytics } from '@/lib/analytics';
+import type { RevenueControlTowerAnalytics } from '@/lib/analytics/revenueControlTower';
+import RecommendationsCard from '@/components/RecommendationsCard';
+import { buildRecommendations } from '@/lib/recommendations';
+import ControlTowerKpiCard from '@/components/controltower/ControlTowerKpiCard';
+import type { KpiDelta } from '@/components/controltower/ControlTowerKpiCard';
+import EmptyStateCard from '@/components/controltower/EmptyStateCard';
+import SectionHeader from '@/components/controltower/SectionHeader';
+import RankedListItem from '@/components/controltower/RankedListItem';
+import { CollapsibleSection } from '@/components/controltower';
+import { cn } from '@/lib/utils';
+import {
+  useChartTheme,
+  buildAxisTick,
+  buildTooltipStyle,
+  buildLegendStyle,
+  CHART_MARGIN,
+  CHART_COLORS,
+} from '@/lib/chartStyles';
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 
-const CHART_COLORS = ['#1E3A5F', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16'];
 const EMPTY_CHART_URL = 'https://mgx-backend-cdn.metadl.com/generate/images/977836/2026-02-19/7965a3e5-68d6-4367-bc84-3890e3b4889b.png';
+
+function percentFromRatio(r: number): string {
+  if (!Number.isFinite(r)) return '—';
+  return `${(r * 100).toFixed(1)}%`;
+}
+
+function moneyOrDash(value: number): string {
+  if (!Number.isFinite(value)) return '—';
+  return formatKZT(value);
+}
+
+function formatGrowth(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return '—';
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function calculationBadge(mode: 'exact' | 'fallback'): string | null {
+  return mode === 'fallback' ? 'по неполным связям' : null;
+}
+
+function getStageLabel(stage: RevenueControlTowerAnalytics['insightSignals']['funnelBottleneckStage']): string {
+  switch (stage) {
+    case 'lead_to_deal':
+      return 'между лидом и сделкой';
+    case 'deal_to_won':
+      return 'между сделкой и выигранной сделкой';
+    case 'won_to_paid':
+      return 'между выигранной сделкой и оплатой';
+    default:
+      return 'в воронке';
+  }
+}
+
+function makeGrowthDelta(value: number | null): KpiDelta | undefined {
+  if (value === null || !Number.isFinite(value)) return undefined;
+  return {
+    value: `${(value * 100).toFixed(1)}%`,
+    direction: value > 0 ? 'up' : value < 0 ? 'down' : 'flat',
+    sentiment: value >= 0 ? 'positive' : 'negative',
+  };
+}
 
 export default function DashboardPage() {
   const navigate = useNavigate();
   const session = getSession();
-  const [period, setPeriod] = useState<AggregationPeriod>('month');
   const [dateRange, setDateRange] = useState<'30d' | '90d' | '180d' | 'all'>('180d');
-  const [signals, setSignalsState] = useState<Signal[]>([]);
+  const chartTheme = useChartTheme();
 
   useEffect(() => {
     if (!session) {
@@ -49,52 +114,142 @@ export default function DashboardPage() {
 
   const companyId = session?.companyId || '';
 
-  // Load data
-  const transactions = useMemo(() => getTransactions(companyId), [companyId]);
   const customers = useMemo(() => getCustomers(companyId), [companyId]);
   const invoices = useMemo(() => getInvoices(companyId), [companyId]);
   const marketingSpend = useMemo(() => getMarketingSpend(companyId), [companyId]);
-  const documents = useMemo(() => getDocuments(companyId), [companyId]);
+  const payments = useMemo(() => getPayments(companyId), [companyId]);
+  const channelCampaigns = useMemo(() => getChannelCampaigns(companyId), [companyId]);
+  const leads = useMemo(() => getLeads(companyId), [companyId]);
+  const deals = useMemo(() => getDeals(companyId), [companyId]);
+  const managers = useMemo(() => getManagers(companyId), [companyId]);
+  const uploads = useMemo(() => getUploads(companyId), [companyId]);
 
-  // Calculate date range
-  const range: DateRange | undefined = useMemo(() => {
-    if (dateRange === 'all') return undefined;
+  const analyticsRange: DateRange = useMemo(() => {
+    if (dateRange !== 'all') {
+      const now = new Date();
+      const days = dateRange === '30d' ? 30 : dateRange === '90d' ? 90 : 180;
+      const from = new Date(now);
+      from.setDate(from.getDate() - days);
+      return {
+        from: from.toISOString().split('T')[0],
+        to: now.toISOString().split('T')[0],
+      };
+    }
+
+    const candidates: string[] = [];
+    for (const p of payments) if (p.paymentDate) candidates.push(p.paymentDate);
+    for (const inv of invoices) {
+      if (inv.invoiceDate) candidates.push(inv.invoiceDate);
+      if (inv.dueDate) candidates.push(inv.dueDate);
+    }
+    for (const l of leads) if (l.createdDate) candidates.push(l.createdDate);
+    for (const d of deals) if (d.createdDate) candidates.push(d.createdDate);
+    for (const ms of marketingSpend) candidates.push(`${ms.month}-01`);
+
+    const valid = candidates
+      .filter((s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s))
+      .map((s) => new Date(s + 'T00:00:00').getTime())
+      .filter((t) => Number.isFinite(t));
+
     const now = new Date();
-    const days = dateRange === '30d' ? 30 : dateRange === '90d' ? 90 : 180;
-    const from = new Date(now);
-    from.setDate(from.getDate() - days);
-    return {
-      from: from.toISOString().split('T')[0],
-      to: now.toISOString().split('T')[0],
+    const fallbackFrom = new Date(now);
+    fallbackFrom.setDate(fallbackFrom.getDate() - 180);
+
+    if (valid.length === 0) {
+      return {
+        from: fallbackFrom.toISOString().split('T')[0],
+        to: now.toISOString().split('T')[0],
+      };
+    }
+
+    const minT = Math.min(...valid);
+    const maxT = Math.max(...valid);
+    const from = new Date(minT).toISOString().split('T')[0];
+    const to = new Date(maxT).toISOString().split('T')[0];
+    return { from, to };
+  }, [dateRange, payments, invoices, leads, deals, marketingSpend]);
+
+  const analytics = useMemo((): RevenueControlTowerAnalytics => calculateRevenueControlTowerAnalytics({
+    dateRange: analyticsRange,
+    channelCampaigns,
+    leads,
+    deals,
+    invoices,
+    payments,
+    customers,
+    marketingSpend,
+    managers,
+  }), [analyticsRange, channelCampaigns, leads, deals, invoices, payments, customers, marketingSpend, managers]);
+
+  const heroChartData = useMemo(() => {
+    const toMonthKey = (d: string) => {
+      const dt = new Date(d + 'T00:00:00');
+      if (!Number.isFinite(dt.getTime())) return '';
+      const y = dt.getFullYear();
+      const m = String(dt.getMonth() + 1).padStart(2, '0');
+      return `${y}-${m}`;
     };
-  }, [dateRange]);
 
-  // Financial metrics
-  const summary = useMemo(() => calculateFinancialSummary(transactions, range), [transactions, range]);
-  const cashflow = useMemo(() => calculateCashflow(transactions, period, range), [transactions, period, range]);
-  const expenseCategories = useMemo(() => calculateCategoryBreakdown(transactions, 'expense', range), [transactions, range]);
-  const investorMetrics = useMemo(() => calculateInvestorMetrics(customers, invoices, marketingSpend), [customers, invoices, marketingSpend]);
-  const unpaidInvoices = useMemo(() => calculateUnpaidInvoices(invoices), [invoices]);
+    const start = new Date(analyticsRange.from + 'T00:00:00');
+    const end = new Date(analyticsRange.to + 'T00:00:00');
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) return [];
 
-  // Signals
-  useEffect(() => {
-    if (!companyId) return;
-    const existing = getSignals(companyId);
-    const newSignals = generateSignals(companyId, transactions, invoices, documents, existing);
-    // Merge: keep existing open signals, add new ones
-    const existingOpen = existing.filter(s => s.status === 'open');
-    const existingTypes = new Set(existingOpen.map(s => s.type));
-    const merged = [...existingOpen, ...newSignals.filter(s => !existingTypes.has(s.type))];
-    const closed = existing.filter(s => s.status === 'closed');
-    const all = [...merged, ...closed];
-    setSignals(companyId, all);
-    setSignalsState(all);
-  }, [companyId, transactions, invoices, documents]);
+    const monthKeys: string[] = [];
+    const cur = new Date(start.getFullYear(), start.getMonth(), 1);
+    while (cur.getTime() <= end.getTime()) {
+      monthKeys.push(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`);
+      cur.setMonth(cur.getMonth() + 1);
+    }
 
-  const handleCloseSignal = useCallback((signalId: string) => {
-    closeSignalInStore(signalId);
-    setSignalsState(prev => prev.map(s => s.id === signalId ? { ...s, status: 'closed' as const } : s));
-  }, []);
+    const paidByMonth = new Map<string, number>();
+    for (const p of payments) {
+      if (!p.paymentDate) continue;
+      const dt = new Date(p.paymentDate + 'T00:00:00');
+      if (!Number.isFinite(dt.getTime())) continue;
+      if (dt.getTime() < start.getTime() || dt.getTime() > end.getTime()) continue;
+      const key = toMonthKey(p.paymentDate);
+      if (!key) continue;
+      paidByMonth.set(key, (paidByMonth.get(key) ?? 0) + p.amount);
+    }
+
+    const inflowByMonth = new Map<string, number>();
+    const overdueByMonth = new Map<string, number>();
+    const today = new Date();
+    const todayTs = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+
+    for (const inv of invoices) {
+      if (inv.status !== 'unpaid') continue;
+      if (!inv.dueDate) continue;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(inv.dueDate)) continue;
+      const dueTs = new Date(inv.dueDate + 'T00:00:00').getTime();
+      if (!Number.isFinite(dueTs)) continue;
+      const key = toMonthKey(inv.dueDate);
+      if (!key) continue;
+
+      if (dueTs >= start.getTime() && dueTs <= end.getTime()) {
+        inflowByMonth.set(key, (inflowByMonth.get(key) ?? 0) + inv.amount);
+      }
+      if (dueTs < todayTs) {
+        overdueByMonth.set(key, (overdueByMonth.get(key) ?? 0) + inv.amount);
+      }
+    }
+
+    const toRuShortMonth = (monthKey: string) => {
+      const [y, m] = monthKey.split('-');
+      const idx = Number(m) - 1;
+      if (!y || !Number.isFinite(idx) || idx < 0 || idx > 11) return monthKey;
+      const date = new Date(Number(y), idx, 1);
+      return new Intl.DateTimeFormat('ru-KZ', { month: 'short' }).format(date);
+    };
+
+    return monthKeys.map((mk) => ({
+      monthKey: mk,
+      monthLabel: toRuShortMonth(mk),
+      paidRevenue: paidByMonth.get(mk) ?? 0,
+      expectedInflow: inflowByMonth.get(mk) ?? 0,
+      overdueExposure: overdueByMonth.get(mk) ?? 0,
+    }));
+  }, [analyticsRange.from, analyticsRange.to, invoices, payments]);
 
   const handleSeedDemo = () => {
     if (!companyId) return;
@@ -102,37 +257,69 @@ export default function DashboardPage() {
     window.location.reload();
   };
 
-  // Export transactions to CSV
-  const handleExportCSV = () => {
-    const headers = ['Дата', 'Сумма', 'Направление', 'Категория', 'Контрагент', 'Описание'];
-    const rows = transactions.map(t => [
-      t.date, t.amount, t.direction === 'income' ? 'Доход' : 'Расход',
-      t.category, t.counterparty || '', t.description || '',
-    ]);
-    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `transactions_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   if (!session) return null;
 
-  const hasData = transactions.length > 0;
+  const hasAnyData =
+    channelCampaigns.length > 0 ||
+    leads.length > 0 ||
+    deals.length > 0 ||
+    invoices.length > 0 ||
+    payments.length > 0 ||
+    marketingSpend.length > 0 ||
+    uploads.length > 0;
+
+  const channelNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const cc of channelCampaigns) {
+      m.set(cc.channelCampaignExternalId, cc.name);
+    }
+    return m;
+  }, [channelCampaigns]);
+
+  const recommendationItems = useMemo(
+    () =>
+      buildRecommendations({
+        surface: 'executive',
+        analytics,
+        channelNameById,
+        formatMoney: formatKZT,
+        maxItems: 3,
+      }),
+    [analytics, channelNameById]
+  );
+
+  const funnelStageLabel = getStageLabel(analytics.insightSignals.funnelBottleneckStage);
+  const topOverdue = analytics.insightSignals.topOverdueInvoices;
+
+  const actionTypeLabel: Record<string, string> = {
+    collect_overdue_invoice: 'Собрать просроченные оплаты',
+    follow_up_unpaid_invoice: 'Напомнить по неоплаченным счетам',
+    reengage_stalled_deal: 'Разморозить застрявшие сделки',
+    prioritize_delayed_customer: 'Переопределить приоритет на клиентов с задержкой оплат',
+  };
+
+  const axisTick = buildAxisTick(chartTheme);
+  const tooltipStyle = buildTooltipStyle(chartTheme);
+  const legendStyle = buildLegendStyle(chartTheme);
 
   return (
     <AppLayout>
-      <div className="p-4 lg:p-6 space-y-6 max-w-[1400px] mx-auto">
+      <div className="rct-page p-4 lg:p-6 max-w-[1400px] mx-auto">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Финансовый дашборд</h1>
-            <p className="text-sm text-slate-500 mt-1">Весь бизнес на одном экране</p>
+            <h1 className="rct-page-title">Контроль выручки</h1>
+            <p className="rct-body-micro mt-1">Деньги, причины и приоритеты — на одном экране</p>
           </div>
           <div className="flex items-center gap-3">
+            <div className="hidden sm:flex items-center gap-2">
+              <Button variant="outline" onClick={() => navigate('/marketing')}>
+                Маркетинг → Выручка
+              </Button>
+              <Button variant="outline" onClick={() => navigate('/sales-cash')}>
+                Sales/Cash
+              </Button>
+            </div>
             <Select value={dateRange} onValueChange={(v) => setDateRange(v as typeof dateRange)}>
               <SelectTrigger className="w-[140px]">
                 <SelectValue />
@@ -144,331 +331,449 @@ export default function DashboardPage() {
                 <SelectItem value="all">Всё время</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={period} onValueChange={(v) => setPeriod(v as AggregationPeriod)}>
-              <SelectTrigger className="w-[130px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="day">По дням</SelectItem>
-                <SelectItem value="week">По неделям</SelectItem>
-                <SelectItem value="month">По месяцам</SelectItem>
-              </SelectContent>
-            </Select>
-            {hasData && (
-              <Button variant="outline" size="sm" onClick={handleExportCSV}>
-                <Download className="h-4 w-4 mr-2" />
-                CSV
-              </Button>
-            )}
           </div>
         </div>
 
         {/* Empty State */}
-        {!hasData && (
-          <div className="bg-white rounded-xl border border-slate-200 p-12 text-center shadow-sm">
-            <img src={EMPTY_CHART_URL} alt="" className="h-32 w-32 mx-auto mb-6 opacity-80" />
-            <h2 className="text-xl font-semibold text-slate-900 mb-2">Нет данных</h2>
-            <p className="text-sm text-slate-500 mb-6 max-w-md mx-auto">
-              Загрузите файл с транзакциями или используйте демо-данные, чтобы увидеть дашборд в действии.
-            </p>
-            <div className="flex items-center justify-center gap-3">
-              <Button onClick={() => navigate('/uploads')} className="bg-[#1E3A5F] hover:bg-[#1E3A5F]/90">
-                Загрузить данные
-              </Button>
-              <Button variant="outline" onClick={handleSeedDemo}>
-                Демо-данные
-              </Button>
-            </div>
-          </div>
+        {!hasAnyData && (
+          <EmptyStateCard
+            title="Нет данных"
+            description="Нужна цепочка данных: маркетинг → лиды → сделки → счета → оплаты. Импортируйте файлы или нажмите «Демо-данные» — и дальше будет готовый walkthrough."
+            imageUrl={EMPTY_CHART_URL}
+            ctaLabel="Загрузить данные"
+            onCta={() => navigate('/uploads')}
+            secondaryCtaLabel="Демо-данные"
+            onSecondaryCta={handleSeedDemo}
+            className="text-center"
+          />
         )}
 
-        {hasData && (
-          <>
-            {/* KPI Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-              <KPICard
+        {hasAnyData && (
+          <div className="rct-section-gap">
+            {/* KPI Cards — Signal zone */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+              <ControlTowerKpiCard
                 title="Выручка"
-                value={formatKZT(summary.totalRevenue)}
-                icon={<DollarSign className="h-5 w-5" />}
-                variant="success"
-                subtitle="за период"
+                value={moneyOrDash(analytics.revenue.value)}
+                subtitle="оплачено в периоде"
+                delta={makeGrowthDelta(analytics.growthRate.value)}
+                status={analytics.revenue.value > 0 ? 'success' : 'warning'}
+                detail={{
+                  what: 'Суммарно оплачено за выбранный период',
+                  why: 'Главный итог по деньгам — реальные поступления, а не обещания.',
+                }}
+                sparkline={heroChartData.map((d) => d.paidRevenue)}
               />
-              <KPICard
-                title="Расходы"
-                value={formatKZT(summary.totalExpenses)}
-                icon={<TrendingDown className="h-5 w-5" />}
-                variant="danger"
-                subtitle="за период"
+              <ControlTowerKpiCard
+                title="Ожидаемый приток"
+                value={moneyOrDash(analytics.expectedInflow.value)}
+                subtitle={calculationBadge(analytics.expectedInflow.calculationMode) ?? 'по срокам оплаты'}
+                status={analytics.expectedInflow.value > 0 ? 'success' : 'default'}
+                detail={{
+                  what: 'Сколько денег ожидается по неоплаченным счетам',
+                  why: 'Показывает будущий приток и помогает планировать кассу.',
+                }}
+                sparkline={heroChartData.map((d) => d.expectedInflow)}
               />
-              <KPICard
-                title="Прибыль"
-                value={formatKZT(summary.profit)}
-                icon={<TrendingUp className="h-5 w-5" />}
-                variant={summary.profit >= 0 ? 'success' : 'danger'}
-                subtitle="за период"
+              <ControlTowerKpiCard
+                title="Просрочено"
+                value={moneyOrDash(analytics.overdueAmount.value)}
+                subtitle={analytics.overdueAmount.value > 0 ? 'угроза притоку' : 'всё в норме'}
+                status={analytics.overdueAmount.value > 0 ? 'warning' : 'success'}
+                detail={{
+                  what: 'Неоплаченные счета с истёкшим сроком',
+                  why: 'Прямой индикатор застрявших денег и риска кассового разрыва.',
+                }}
+                sparkline={heroChartData.map((d) => d.overdueExposure)}
               />
-              <KPICard
-                title="Маржа"
-                value={`${summary.grossMarginPercent.toFixed(1)}%`}
-                icon={<Percent className="h-5 w-5" />}
-                variant={summary.grossMarginPercent > 20 ? 'success' : 'warning'}
+              <ControlTowerKpiCard
+                title="Лид → сделка"
+                value={percentFromRatio(analytics.leadToDealConversion.value)}
+                subtitle={calculationBadge(analytics.leadToDealConversion.calculationMode) ?? 'воронка лидов'}
+                status={analytics.leadToDealConversion.value >= 0.18 ? 'success' : 'warning'}
+                detail={{
+                  what: 'Доля лидов, превращённых в сделки',
+                  why: 'Показывает качество лидов и эффективность первого контакта.',
+                }}
               />
-              <KPICard
-                title="Дебиторка"
-                value={formatKZT(unpaidInvoices.totalUnpaid)}
-                icon={<ArrowDownUp className="h-5 w-5" />}
-                subtitle={`${unpaidInvoices.count} счетов`}
-                variant={unpaidInvoices.count > 0 ? 'warning' : 'default'}
+              <ControlTowerKpiCard
+                title="Сделка → оплачено"
+                value={percentFromRatio(analytics.dealToPaidConversion.value)}
+                subtitle={calculationBadge(analytics.dealToPaidConversion.calculationMode) ?? 'сквозная связь'}
+                status={
+                  analytics.dealToPaidConversion.value >= 0.45
+                    ? 'success'
+                    : analytics.dealToPaidConversion.value >= 0.25
+                      ? 'warning'
+                      : 'danger'
+                }
+                detail={{
+                  what: 'Доля сделок, дошедших до оплаты',
+                  why: 'Ключ к пониманию, доходят ли продажи до реальных денег.',
+                }}
+              />
+              <ControlTowerKpiCard
+                title="Рост выручки"
+                value={formatGrowth(analytics.growthRate.value)}
+                subtitle="к прошлому периоду"
+                delta={makeGrowthDelta(analytics.growthRate.value)}
+                status={analytics.growthRate.value !== null && analytics.growthRate.value >= 0 ? 'success' : 'danger'}
+                detail={{
+                  what: 'Изменение выручки по сравнению с прошлым периодом',
+                  why: 'Быстрая проверка: ускоряется ли бизнес или замедляется.',
+                }}
               />
             </div>
 
-            {/* Charts + Signals Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Charts */}
-              <div className="lg:col-span-2 space-y-6">
-                {/* Revenue vs Expenses */}
-                <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-                  <h3 className="text-base font-semibold text-slate-900 mb-4">Выручка vs Расходы</h3>
-                  <ResponsiveContainer width="100%" height={280}>
-                    <BarChart data={cashflow}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                      <XAxis dataKey="period" tick={{ fontSize: 12 }} stroke="#94A3B8" />
-                      <YAxis tick={{ fontSize: 12 }} stroke="#94A3B8" tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`} />
-                      <Tooltip
-                        formatter={(value: number) => formatKZT(value)}
-                        labelStyle={{ fontWeight: 600 }}
-                        contentStyle={{ borderRadius: 8, border: '1px solid #E2E8F0' }}
-                      />
-                      <Legend />
-                      <Bar dataKey="income" name="Доход" fill="#10B981" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="expense" name="Расход" fill="#EF4444" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+            <div className="rct-section-gap grid grid-cols-1 xl:grid-cols-12 gap-6">
+              {/* Hero + evidence */}
+              <div className="xl:col-span-8 space-y-6">
+                <div className="rct-hero-card rct-card-padding">
+                  <div className="flex items-start justify-between gap-3 mb-4">
+                    <SectionHeader
+                      title="Тренд по деньгам"
+                      description="Оплачено, ожидаемый приток и просрочки — вместе."
+                    />
+                    <Badge variant="outline" className="text-xs shrink-0">
+                      {heroChartData.length ? `${heroChartData[0].monthLabel} → ${heroChartData[heroChartData.length - 1].monthLabel}` : 'Нет данных'}
+                    </Badge>
+                  </div>
 
-                {/* Cashflow Trend */}
-                <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-                  <h3 className="text-base font-semibold text-slate-900 mb-4">Cashflow (нетто)</h3>
-                  <ResponsiveContainer width="100%" height={240}>
-                    <LineChart data={cashflow}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                      <XAxis dataKey="period" tick={{ fontSize: 12 }} stroke="#94A3B8" />
-                      <YAxis tick={{ fontSize: 12 }} stroke="#94A3B8" tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`} />
-                      <Tooltip
-                        formatter={(value: number) => formatKZT(value)}
-                        contentStyle={{ borderRadius: 8, border: '1px solid #E2E8F0' }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="net"
-                        name="Нетто"
-                        stroke="#1E3A5F"
-                        strokeWidth={2.5}
-                        dot={{ fill: '#1E3A5F', r: 4 }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              {/* Signals Panel */}
-              <div className="space-y-6">
-                <SignalsPanel signals={signals} onClose={handleCloseSignal} />
-
-                {/* Expense by Category */}
-                <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-                  <h3 className="text-base font-semibold text-slate-900 mb-4">Расходы по категориям</h3>
-                  {expenseCategories.length > 0 ? (
-                    <>
-                      <ResponsiveContainer width="100%" height={200}>
-                        <PieChart>
-                          <Pie
-                            data={expenseCategories.slice(0, 6)}
-                            dataKey="amount"
-                            nameKey="category"
-                            cx="50%"
-                            cy="50%"
-                            outerRadius={80}
-                            innerRadius={40}
-                          >
-                            {expenseCategories.slice(0, 6).map((_, idx) => (
-                              <Cell key={idx} fill={CHART_COLORS[idx % CHART_COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip formatter={(value: number) => formatKZT(value)} />
-                        </PieChart>
-                      </ResponsiveContainer>
-                      <div className="space-y-2 mt-3">
-                        {expenseCategories.slice(0, 5).map((cat, idx) => (
-                          <div key={cat.category} className="flex items-center justify-between text-sm">
-                            <div className="flex items-center gap-2">
-                              <div
-                                className="h-3 w-3 rounded-full"
-                                style={{ backgroundColor: CHART_COLORS[idx % CHART_COLORS.length] }}
-                              />
-                              <span className="text-slate-600 truncate">{cat.category}</span>
-                            </div>
-                            <span className="text-slate-900 font-medium">{cat.percent.toFixed(1)}%</span>
-                          </div>
-                        ))}
+                  <div className="h-[270px]">
+                    {heroChartData.length === 0 ? (
+                      <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+                        Недостаточно данных для тренда
                       </div>
-                    </>
-                  ) : (
-                    <p className="text-sm text-slate-400 text-center py-8">Нет данных о расходах</p>
-                  )}
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={heroChartData} margin={CHART_MARGIN}>
+                          <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridStroke} vertical={false} />
+                          <XAxis dataKey="monthLabel" tick={axisTick} axisLine={false} />
+                          <YAxis
+                            tick={axisTick}
+                            tickFormatter={(v) => {
+                              if (!Number.isFinite(v)) return '—';
+                              const num = Number(v);
+                              return num >= 1_000_000 ? `${Math.round(num / 1_000_000)}M` : new Intl.NumberFormat('ru-KZ').format(num);
+                            }}
+                          />
+                          <RechartsTooltip
+                            contentStyle={tooltipStyle.contentStyle}
+                            wrapperStyle={tooltipStyle.wrapperStyle}
+                            formatter={(value: unknown) => {
+                              if (!Number.isFinite(Number(value))) return '—';
+                              return formatKZT(Number(value));
+                            }}
+                          />
+                          <Legend wrapperStyle={legendStyle.wrapperStyle} iconSize={legendStyle.iconSize} />
+                          <Line type="monotone" dataKey="paidRevenue" name="Оплачено" stroke={CHART_COLORS.paid} strokeWidth={2} dot={false} />
+                          <Line type="monotone" dataKey="expectedInflow" name="Ожидаемый приток" stroke={CHART_COLORS.expected} strokeWidth={2} dot={false} />
+                          <Line
+                            type="monotone"
+                            dataKey="overdueExposure"
+                            name="Просрочка"
+                            stroke={CHART_COLORS.overdue}
+                            strokeWidth={2}
+                            dot={false}
+                            strokeDasharray="6 4"
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </div>
 
-            {/* Investor Metrics */}
-            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <BarChart3 className="h-5 w-5 text-[#1E3A5F]" />
-                  <h3 className="text-base font-semibold text-slate-900">Инвесторские метрики</h3>
+                {/* Evidence row */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Funnel */}
+                  <div className="rct-card rct-card-padding-compact">
+                    <div className="flex items-start justify-between gap-3">
+                      <SectionHeader title="Воронка" helpKey="funnel_drop_off" size="sm" />
+                      <Badge variant="outline" className="text-xs">
+                        {funnelStageLabel}
+                      </Badge>
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {[
+                        { label: 'Лиды', value: analytics.funnelDropOff.leads, note: `${percentFromRatio(analytics.funnelDropOff.leadToDealRate)}` },
+                        { label: 'Сделки', value: analytics.funnelDropOff.deals, note: `${percentFromRatio(analytics.funnelDropOff.dealToWonRate)}` },
+                        { label: 'Выигранные', value: analytics.funnelDropOff.wonDeals, note: `${percentFromRatio(analytics.funnelDropOff.wonToPaidRate)}` },
+                        { label: 'Оплачено', value: analytics.funnelDropOff.paidWonDeals, note: '' },
+                      ].map((s, idx, arr) => {
+                        const max = Math.max(1, arr[0].value, arr[1].value, arr[2].value, arr[3].value);
+                        const w = Math.round((s.value / max) * 100);
+                        return (
+                          <div key={s.label} className="space-y-1">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-xs font-medium text-muted-foreground">{s.label}</span>
+                              <span className="text-xs text-foreground font-semibold">{s.value}</span>
+                            </div>
+                            <div className="h-2 bg-muted rounded-full overflow-hidden">
+                              <div
+                                className={cn(
+                                  'h-full',
+                                  idx === 0 ? 'bg-foreground/80' : idx === 1 ? 'bg-primary/70' : idx === 2 ? 'bg-teal-600/70 dark:bg-teal-500/60' : 'bg-teal-500/70 dark:bg-teal-400/60',
+                                )}
+                                style={{ width: `${w}%` }}
+                              />
+                            </div>
+                            {s.note ? <p className="text-[11px] text-muted-foreground">Конверсия: {s.note}</p> : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Paid by source */}
+                  <div className="rct-card rct-card-padding-compact">
+                    <div className="flex items-start justify-between gap-3">
+                      <SectionHeader title="Деньги по источникам" helpKey="paid_revenue_by_source" size="sm" />
+                      <Badge variant="outline" className="text-xs shrink-0">{analytics.paidRevenueBySource.rows.length}</Badge>
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {(() => {
+                        const rows = analytics.paidRevenueBySource.rows.slice().sort((a, b) => b.paidRevenue - a.paidRevenue).slice(0, 5);
+                        if (rows.length === 0) {
+                          return <p className="rct-body-micro">Нет данных для атрибуции</p>;
+                        }
+                        const max = Math.max(1, ...rows.map((r) => r.paidRevenue));
+                        return rows.map((r) => (
+                          <RankedListItem
+                            key={r.channelCampaignExternalId}
+                            label={channelNameById.get(r.channelCampaignExternalId) ?? r.channelCampaignExternalId}
+                            value={formatKZT(r.paidRevenue)}
+                            progressPct={Math.round((r.paidRevenue / max) * 100)}
+                            barColor="navy"
+                          />
+                        ));
+                      })()}
+                    </div>
+                    {analytics.paidRevenueBySource.unattributedPaidRevenue > 0 ? (
+                      <p className="mt-3 text-xs text-rose-600 dark:text-rose-400">
+                        Не размечено: {formatKZT(analytics.paidRevenueBySource.unattributedPaidRevenue)}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {/* Cash risk snapshot */}
+                  <div className="rct-card rct-card-padding-compact">
+                    <div className="flex items-start justify-between gap-3">
+                      <SectionHeader title="Cash-пульс" helpKey="overdue_amount" size="sm" />
+                      <Badge variant="outline" className="text-xs shrink-0">
+                        {analytics.overdueAmount.value > 0 ? 'Есть риск' : 'Без просрочки'}
+                      </Badge>
+                    </div>
+
+                    <div className="mt-4 space-y-2.5">
+                      <div className="rct-card-inset p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-xs font-medium text-muted-foreground">Просрочено</span>
+                          <span className="text-xs font-semibold text-foreground">{formatKZT(analytics.overdueAmount.value)}</span>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div className="rct-card-inset p-3">
+                          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Счета</div>
+                          <div className="text-sm font-bold text-foreground mt-0.5">{analytics.salesCashPriority.overdueInvoices.length}</div>
+                        </div>
+                        <div className="rct-card-inset p-3">
+                          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Клиенты</div>
+                          <div className="text-sm font-bold text-foreground mt-0.5">{analytics.salesCashPriority.delayedCustomers.length}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                {investorMetrics.missingData.length > 0 && (
-                  <Badge variant="outline" className="text-amber-600 border-amber-300">
-                    <AlertCircle className="h-3 w-3 mr-1" />
-                    Требуются: {investorMetrics.missingData.join(', ')}
-                  </Badge>
-                )}
-              </div>
 
-              {investorMetrics.available ? (
-                <Tabs defaultValue="overview">
-                  <TabsList>
-                    <TabsTrigger value="overview">Обзор</TabsTrigger>
-                    <TabsTrigger value="ltv">LTV / CAC</TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="overview" className="mt-4">
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                      <KPICard
-                        title="Всего клиентов"
-                        value={String(investorMetrics.totalCustomers)}
-                        icon={<Users className="h-5 w-5" />}
-                      />
-                      <KPICard
-                        title="Активных"
-                        value={String(investorMetrics.activeCustomers)}
-                        subtitle={`${investorMetrics.retentionRate.toFixed(0)}% retention`}
-                        icon={<Target className="h-5 w-5" />}
-                        variant="success"
-                      />
-                      <KPICard
-                        title="ARPA"
-                        value={formatKZT(investorMetrics.avgRevenuePerCustomer)}
-                        subtitle="средний доход/клиент"
-                      />
-                      <KPICard
-                        title="LTV (среднее)"
-                        value={formatKZT(investorMetrics.ltvAvg)}
-                        variant="success"
-                      />
+                {/* Recommendations (compact) */}
+                <RecommendationsCard
+                  title="Рекомендации на сейчас"
+                  description="Что болит, почему важно и что сделать дальше."
+                  items={recommendationItems}
+                  helpKey="priority_actions"
+                  compact
+                />
+
+                {/* Best / Worst sources */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="rct-card rct-card-padding">
+                    <div className="flex items-start justify-between gap-3 mb-4">
+                      <SectionHeader title="Лучшие по деньгам" size="sm" />
+                      <Badge variant="outline" className="text-xs shrink-0">Top</Badge>
                     </div>
-                  </TabsContent>
-                  <TabsContent value="ltv" className="mt-4">
-                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-                      <KPICard
-                        title="LTV (среднее)"
-                        value={formatKZT(investorMetrics.ltvAvg)}
-                        variant="success"
-                      />
-                      <KPICard
-                        title="CAC"
-                        value={investorMetrics.cacAvg !== null ? formatKZT(investorMetrics.cacAvg) : 'Нет данных'}
-                        subtitle={investorMetrics.cacAvg === null ? 'Загрузите marketing_spend' : 'стоимость привлечения'}
-                        variant={investorMetrics.cacAvg !== null ? 'default' : 'warning'}
-                      />
-                      <KPICard
-                        title="LTV:CAC"
-                        value={investorMetrics.ltvCacRatio !== null ? `${investorMetrics.ltvCacRatio.toFixed(1)}x` : 'Нет данных'}
-                        subtitle={investorMetrics.ltvCacRatio !== null
-                          ? (investorMetrics.ltvCacRatio >= 3 ? 'Отличный показатель' : investorMetrics.ltvCacRatio >= 1 ? 'Приемлемо' : 'Требует внимания')
-                          : ''}
-                        variant={investorMetrics.ltvCacRatio !== null
-                          ? (investorMetrics.ltvCacRatio >= 3 ? 'success' : investorMetrics.ltvCacRatio >= 1 ? 'warning' : 'danger')
-                          : 'default'}
-                      />
+                    <div className="space-y-3">
+                      {(() => {
+                        const rows = analytics.paidRevenueBySource.rows
+                          .slice()
+                          .sort((a, b) => b.paidRevenue - a.paidRevenue)
+                          .slice(0, 4);
+                        if (rows.length === 0) return <p className="rct-body-micro">Нет данных</p>;
+                        const max = Math.max(1, ...rows.map((r) => r.paidRevenue));
+                        return rows.map((r) => (
+                          <RankedListItem
+                            key={r.channelCampaignExternalId}
+                            label={channelNameById.get(r.channelCampaignExternalId) ?? r.channelCampaignExternalId}
+                            value={formatKZT(r.paidRevenue)}
+                            progressPct={Math.round((r.paidRevenue / max) * 100)}
+                            barColor="emerald"
+                          />
+                        ));
+                      })()}
                     </div>
-                  </TabsContent>
-                </Tabs>
-              ) : (
-                <div className="text-center py-8">
-                  <AlertCircle className="h-10 w-10 text-amber-400 mx-auto mb-3" />
-                  <p className="text-sm text-slate-600 font-medium">Для расчёта LTV/CAC необходимы данные</p>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Загрузите файлы: {investorMetrics.missingData.join(', ')}
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-4"
-                    onClick={() => navigate('/uploads')}
+                  </div>
+
+                  <CollapsibleSection
+                    title="Где больше всего провала"
+                    summary={`Bottleneck: ${funnelStageLabel}`}
+                    badge={<Badge variant="outline" className="text-xs">Причины</Badge>}
+                    defaultOpen={false}
                   >
-                    Загрузить данные
-                  </Button>
+                    <div className="space-y-3">
+                      {(() => {
+                        const rowsById = new Map(analytics.paidRevenueBySource.rows.map((r) => [r.channelCampaignExternalId, r]));
+                        const ids = [
+                          ...analytics.bestWorstChannelsSummary.worstByLeadToDealConversion.slice(0, 2),
+                          ...analytics.bestWorstChannelsSummary.worstByDealToPaidConversion.slice(0, 2),
+                        ];
+                        const unique = Array.from(new Set(ids));
+                        if (unique.length === 0) return <p className="text-sm text-muted-foreground">Недостаточно данных</p>;
+                        return unique.slice(0, 4).map((id) => {
+                          const r = rowsById.get(id);
+                          const label = channelNameById.get(id) ?? id;
+                          const leadRate = r ? r.leadToDealConversion : 0;
+                          const dealRate = r ? r.dealToPaidConversion : 0;
+                          const worstMetric = Math.min(leadRate, dealRate);
+                          return (
+                            <div key={id} className="rct-card-inset p-3">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold text-foreground truncate">{label}</p>
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    Лид→сделка {percentFromRatio(leadRate)} / Сделка→оплата {percentFromRatio(dealRate)}
+                                  </p>
+                                </div>
+                                <Badge variant="outline" className="text-xs text-rose-600 dark:text-rose-400 border-rose-300/60 dark:border-rose-800/40 whitespace-nowrap">
+                                  {percentFromRatio(worstMetric)}
+                                </Badge>
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </CollapsibleSection>
                 </div>
-              )}
-            </div>
+              </div>
 
-            {/* Transactions Table */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-              <div className="p-5 border-b border-slate-100">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-base font-semibold text-slate-900">
-                    Транзакции ({transactions.length})
-                  </h3>
+              {/* Right rail — Decision panel */}
+              <div className="xl:col-span-4 space-y-5">
+                {/* Bottleneck summary */}
+                <div className="rct-card-raised rct-card-padding">
+                  <SectionHeader title="Риски и что делать" helpKey="priority_actions" size="sm" />
+                  <div className="mt-4 space-y-3">
+                    <div className="rct-card-inset p-3.5">
+                      <div className="flex items-center justify-between gap-3 mb-1.5">
+                        <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Bottleneck</span>
+                        <Badge variant="outline" className="text-[10px]">
+                          {analytics.salesCashPriority.overdueInvoices.length > 0 ? 'нужны действия' : 'держим темп'}
+                        </Badge>
+                      </div>
+                      <p className="text-sm font-semibold text-foreground">{funnelStageLabel}</p>
+                      {analytics.insightSignals.worstChannels[0] ? (
+                        <p className="text-xs text-muted-foreground mt-1.5">
+                          Источник: {channelNameById.get(analytics.insightSignals.worstChannels[0].channelCampaignExternalId) ?? analytics.insightSignals.worstChannels[0].channelCampaignExternalId}
+                        </p>
+                      ) : null}
+                    </div>
+
+                    {/* Key metrics strip */}
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="rct-card-inset p-2.5 text-center">
+                        <div className="text-[10px] text-muted-foreground">Лид→Сделка</div>
+                        <div className="text-sm font-bold text-foreground mt-0.5">{percentFromRatio(analytics.leadToDealConversion.value)}</div>
+                      </div>
+                      <div className="rct-card-inset p-2.5 text-center">
+                        <div className="text-[10px] text-muted-foreground">Сделка→Оплата</div>
+                        <div className="text-sm font-bold text-foreground mt-0.5">{percentFromRatio(analytics.dealToPaidConversion.value)}</div>
+                      </div>
+                      <div className="rct-card-inset p-2.5 text-center">
+                        <div className="text-[10px] text-muted-foreground">Просрочка</div>
+                        <div className="text-sm font-bold text-foreground mt-0.5">{formatKZT(analytics.overdueAmount.value)}</div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-100 bg-slate-50/50">
-                      <th className="text-left px-5 py-3 font-medium text-slate-500">Дата</th>
-                      <th className="text-left px-5 py-3 font-medium text-slate-500">Категория</th>
-                      <th className="text-left px-5 py-3 font-medium text-slate-500">Контрагент</th>
-                      <th className="text-left px-5 py-3 font-medium text-slate-500">Описание</th>
-                      <th className="text-right px-5 py-3 font-medium text-slate-500">Сумма</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {transactions
-                      .sort((a, b) => b.date.localeCompare(a.date))
-                      .slice(0, 50)
-                      .map((txn) => (
-                        <tr key={txn.id} className="border-b border-slate-50 hover:bg-slate-50/50">
-                          <td className="px-5 py-3 text-slate-600">
-                            {new Date(txn.date).toLocaleDateString('ru-KZ')}
-                          </td>
-                          <td className="px-5 py-3">
-                            <Badge variant="outline" className="text-xs">
-                              {txn.category}
+
+                {/* Overdue invoices */}
+                <CollapsibleSection
+                  title="Топ просрочки"
+                  summary={topOverdue.length ? `${topOverdue.length} шт.` : 'нет'}
+                  defaultOpen={topOverdue.length > 0}
+                >
+                  <div className="space-y-2">
+                    {topOverdue.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">Просрочки нет.</p>
+                    ) : (
+                      topOverdue.slice(0, 4).map((x) => (
+                        <div key={x.invoiceExternalId ?? `${x.customerExternalId}_${x.dueDate ?? 'x'}`} className="rct-card-inset p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-xs font-medium text-foreground truncate max-w-[160px]">
+                              {x.invoiceExternalId ?? x.customerExternalId ?? 'Счёт'}
+                            </span>
+                            <span className="text-xs font-semibold text-foreground whitespace-nowrap">{formatKZT(x.overdueAmount)}</span>
+                          </div>
+                          {x.dueDate ? (
+                            <p className="text-[11px] text-muted-foreground mt-1">
+                              срок: {new Date(x.dueDate + 'T00:00:00').toLocaleDateString('ru-KZ')}
+                            </p>
+                          ) : null}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </CollapsibleSection>
+
+                {/* Priority actions */}
+                <CollapsibleSection
+                  title="Приоритетные действия"
+                  summary={`${analytics.salesCashPriority.priorityActionCandidates.length} кандидатов`}
+                  defaultOpen={analytics.salesCashPriority.priorityActionCandidates.length > 0}
+                >
+                  <div className="space-y-2">
+                    {analytics.salesCashPriority.priorityActionCandidates.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">Нет кандидатов.</p>
+                    ) : (
+                      analytics.salesCashPriority.priorityActionCandidates.slice(0, 3).map((a) => (
+                        <div key={a.id} className="rct-card-inset p-3">
+                          <p className="text-sm font-semibold text-foreground truncate">{actionTypeLabel[a.type] ?? a.type}</p>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            <Badge variant="outline" className="text-[10px]">
+                              {a.area === 'cashflow' ? 'cash' : a.area === 'sales' ? 'sales' : 'revenue'}
                             </Badge>
-                          </td>
-                          <td className="px-5 py-3 text-slate-600 truncate max-w-[200px]">
-                            {txn.counterparty || '—'}
-                          </td>
-                          <td className="px-5 py-3 text-slate-500 truncate max-w-[200px]">
-                            {txn.description || '—'}
-                          </td>
-                          <td className={`px-5 py-3 text-right font-medium ${txn.direction === 'income' ? 'text-emerald-600' : 'text-red-600'}`}>
-                            {txn.direction === 'income' ? '+' : '-'}{formatKZT(txn.amount)}
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
+                            <Badge
+                              variant="outline"
+                              className={cn('text-[10px]',
+                                a.priority === 'high'
+                                  ? 'text-rose-600 dark:text-rose-400 border-rose-300/60 dark:border-rose-800/40'
+                                  : a.priority === 'medium'
+                                    ? 'text-yellow-700 dark:text-yellow-400 border-yellow-300/60 dark:border-yellow-800/40'
+                                    : 'text-primary border-primary/30'
+                              )}
+                            >
+                              {a.priority === 'high' ? 'Высокий' : a.priority === 'medium' ? 'Средний' : 'Низкий'}
+                            </Badge>
+                          </div>
+                          {a.facts[0] ? (
+                            <p className="text-xs text-muted-foreground mt-1.5">{a.facts[0]}</p>
+                          ) : null}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </CollapsibleSection>
               </div>
-              {transactions.length > 50 && (
-                <div className="p-4 text-center border-t border-slate-100">
-                  <p className="text-xs text-slate-400">
-                    Показаны последние 50 из {transactions.length} транзакций
-                  </p>
-                </div>
-              )}
             </div>
-          </>
+          </div>
         )}
       </div>
     </AppLayout>

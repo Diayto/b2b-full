@@ -49,7 +49,13 @@ export default function SettingsPage() {
     if (window.confirm('Вы уверены? Все данные компании будут удалены.')) {
       const keys = [
         'bp_transactions', 'bp_customers', 'bp_invoices',
-        'bp_marketing_spend', 'bp_documents', 'bp_uploads', 'bp_signals',
+        'bp_marketing_spend',
+        'bp_leads',
+        'bp_deals',
+        'bp_channels_campaigns',
+        'bp_managers',
+        'bp_payments',
+        'bp_documents', 'bp_uploads', 'bp_signals',
         'bp_notification_settings', 'bp_deadline_reminder_logs',
       ];
       for (const key of keys) {
@@ -112,37 +118,37 @@ export default function SettingsPage() {
 
   return (
     <AppLayout>
-      <div className="p-4 lg:p-6 space-y-6 max-w-[800px] mx-auto">
+      <div className="rct-page p-4 lg:p-6 space-y-8 max-w-[800px] mx-auto">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Настройки</h1>
-          <p className="text-sm text-slate-500 mt-1">Управление аккаунтом и компанией</p>
+          <h1 className="rct-page-title">Настройки</h1>
+          <p className="rct-body-micro mt-1">Управление аккаунтом и компанией</p>
         </div>
 
         {/* Company Info */}
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Building2 className="h-5 w-5 text-[#1E3A5F]" />
+        <Card className="rct-card">
+          <CardHeader className="rct-card-padding pb-3">
+            <CardTitle className="rct-section-title flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-primary" />
               Компания
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="rct-card-padding pt-0 space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label className="text-xs text-slate-500">Название</Label>
-                <p className="text-sm font-medium text-slate-900">{company.name}</p>
+                <Label className="text-xs text-muted-foreground">Название</Label>
+                <p className="text-sm font-medium text-foreground">{company.name}</p>
               </div>
               <div>
-                <Label className="text-xs text-slate-500">Валюта</Label>
-                <p className="text-sm font-medium text-slate-900">{company.currency} (₸)</p>
+                <Label className="text-xs text-muted-foreground">Валюта</Label>
+                <p className="text-sm font-medium text-foreground">{company.currency} (₸)</p>
               </div>
               <div>
-                <Label className="text-xs text-slate-500">ID компании</Label>
-                <p className="text-xs font-mono text-slate-500">{company.id}</p>
+                <Label className="text-xs text-muted-foreground">ID компании</Label>
+                <p className="text-xs font-mono text-muted-foreground">{company.id}</p>
               </div>
               <div>
-                <Label className="text-xs text-slate-500">Создана</Label>
-                <p className="text-sm text-slate-600">
+                <Label className="text-xs text-muted-foreground">Создана</Label>
+                <p className="text-sm text-muted-foreground">
                   {new Date(company.createdAt).toLocaleDateString('ru-KZ')}
                 </p>
               </div>
@@ -151,25 +157,25 @@ export default function SettingsPage() {
         </Card>
 
         {/* User Info */}
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <User className="h-5 w-5 text-[#1E3A5F]" />
+        <Card className="rct-card">
+          <CardHeader className="rct-card-padding pb-3">
+            <CardTitle className="rct-section-title flex items-center gap-2">
+              <User className="h-5 w-5 text-primary" />
               Профиль
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="rct-card-padding pt-0 space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label className="text-xs text-slate-500">Имя</Label>
-                <p className="text-sm font-medium text-slate-900">{user.name}</p>
+                <Label className="text-xs text-muted-foreground">Имя</Label>
+                <p className="text-sm font-medium text-foreground">{user.name}</p>
               </div>
               <div>
-                <Label className="text-xs text-slate-500">Email</Label>
-                <p className="text-sm font-medium text-slate-900">{user.email}</p>
+                <Label className="text-xs text-muted-foreground">Email</Label>
+                <p className="text-sm font-medium text-foreground">{user.email}</p>
               </div>
               <div>
-                <Label className="text-xs text-slate-500">Роль</Label>
+                <Label className="text-xs text-muted-foreground">Роль</Label>
                 <Badge variant="outline" className="capitalize">{user.role}</Badge>
               </div>
             </div>
@@ -177,31 +183,31 @@ export default function SettingsPage() {
         </Card>
 
         {/* Data Stats */}
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Database className="h-5 w-5 text-[#1E3A5F]" />
+        <Card className="rct-card">
+          <CardHeader className="rct-card-padding pb-3">
+            <CardTitle className="rct-section-title flex items-center gap-2">
+              <Database className="h-5 w-5 text-primary" />
               Данные
             </CardTitle>
             <CardDescription>Статистика загруженных данных</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="rct-card-padding pt-0">
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-slate-50 rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold text-slate-900">{txnCount}</p>
-                <p className="text-xs text-slate-500">Транзакций</p>
+              <div className="rct-stat-box-slate">
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Транзакций</div>
+                <div className="text-xl font-bold text-foreground mt-2 tracking-tight">{txnCount}</div>
               </div>
-              <div className="bg-slate-50 rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold text-slate-900">{custCount}</p>
-                <p className="text-xs text-slate-500">Клиентов</p>
+              <div className="rct-stat-box-slate">
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Клиентов</div>
+                <div className="text-xl font-bold text-foreground mt-2 tracking-tight">{custCount}</div>
               </div>
-              <div className="bg-slate-50 rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold text-slate-900">{invCount}</p>
-                <p className="text-xs text-slate-500">Счетов</p>
+              <div className="rct-stat-box-slate">
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Счетов</div>
+                <div className="text-xl font-bold text-foreground mt-2 tracking-tight">{invCount}</div>
               </div>
-              <div className="bg-slate-50 rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold text-slate-900">{docCount}</p>
-                <p className="text-xs text-slate-500">Документов</p>
+              <div className="rct-stat-box-slate">
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Документов</div>
+                <div className="text-xl font-bold text-foreground mt-2 tracking-tight">{docCount}</div>
               </div>
             </div>
 
@@ -209,8 +215,8 @@ export default function SettingsPage() {
 
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-red-600">Очистить все данные</p>
-                <p className="text-xs text-slate-500">Удалить все транзакции, клиентов, счета и документы</p>
+                <p className="text-sm font-medium text-destructive">Очистить все данные</p>
+                <p className="text-xs text-muted-foreground">Удалить все транзакции, клиентов, счета и документы</p>
               </div>
               <Button variant="destructive" size="sm" onClick={handleClearData}>
                 <Trash2 className="h-4 w-4 mr-2" />
@@ -221,25 +227,24 @@ export default function SettingsPage() {
         </Card>
 
         {/* Notifications */}
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <BellRing className="h-5 w-5 text-[#1E3A5F]" />
+        <Card className="rct-card">
+          <CardHeader className="rct-card-padding pb-3">
+            <CardTitle className="rct-section-title flex items-center gap-2">
+              <BellRing className="h-5 w-5 text-primary" />
               Уведомления по дедлайнам
             </CardTitle>
             <CardDescription>Email-напоминания за 7, 3 дня и в день дедлайна</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="rct-card-padding pt-0 space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-900">Включить уведомления</p>
-                <p className="text-xs text-slate-500">Если включено, система будет проверять дедлайны договоров</p>
+                <p className="text-sm font-medium text-foreground">Включить уведомления</p>
+                <p className="text-xs text-muted-foreground">Система будет проверять дедлайны договоров</p>
               </div>
               <Button
                 size="sm"
                 variant={notifEnabled ? 'default' : 'outline'}
                 onClick={() => setNotifEnabled((prev) => !prev)}
-                className={notifEnabled ? 'bg-[#1E3A5F] hover:bg-[#1E3A5F]/90' : ''}
               >
                 {notifEnabled ? 'Включено' : 'Выключено'}
               </Button>
@@ -264,7 +269,6 @@ export default function SettingsPage() {
                     size="sm"
                     variant={notifDays.includes(day) ? 'default' : 'outline'}
                     onClick={() => toggleDay(day)}
-                    className={notifDays.includes(day) ? 'bg-[#1E3A5F] hover:bg-[#1E3A5F]/90' : ''}
                   >
                     {day === 0 ? 'День в день' : `${day} дней`}
                   </Button>
@@ -273,7 +277,7 @@ export default function SettingsPage() {
             </div>
 
             <div className="flex gap-2">
-              <Button onClick={handleSaveNotifications} className="bg-[#1E3A5F] hover:bg-[#1E3A5F]/90">
+              <Button onClick={handleSaveNotifications}>
                 Сохранить настройки
               </Button>
               <Button variant="outline" onClick={handleRunReminderCheck} disabled={sendingNow}>
@@ -284,32 +288,32 @@ export default function SettingsPage() {
             <Separator />
 
             <div className="space-y-2">
-              <p className="text-sm font-medium text-slate-900">Последние отправки</p>
+              <p className="text-sm font-medium text-foreground">Последние отправки</p>
               {recentLogs.length === 0 ? (
-                <p className="text-xs text-slate-500">Логов пока нет</p>
+                <p className="text-xs text-muted-foreground">Логов пока нет</p>
               ) : (
                 <div className="space-y-2 max-h-48 overflow-y-auto">
                   {recentLogs.map((log) => (
-                    <div key={log.id} className="rounded-md border border-slate-200 p-2 text-xs">
+                    <div key={log.id} className="rounded-md border border-border p-2 text-xs">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="font-medium text-slate-800 truncate">{log.documentTitle}</p>
+                        <p className="font-medium text-foreground truncate">{log.documentTitle}</p>
                         <Badge
                           variant="outline"
                           className={
                             log.status === 'sent'
-                              ? 'text-emerald-700 border-emerald-300'
+                              ? 'text-teal-600 dark:text-teal-400 border-teal-300/60 dark:border-teal-800/40'
                               : log.status === 'queued'
-                                ? 'text-amber-700 border-amber-300'
-                                : 'text-red-700 border-red-300'
+                                ? 'text-yellow-700 dark:text-yellow-400 border-yellow-300/60 dark:border-yellow-800/40'
+                                : 'text-rose-600 dark:text-rose-400 border-rose-300/60 dark:border-rose-800/40'
                           }
                         >
                           {log.status}
                         </Badge>
                       </div>
-                      <p className="text-slate-600 mt-1">
+                      <p className="text-muted-foreground mt-1">
                         {log.recipientEmail} • {log.daysBefore === 0 ? 'день в день' : `${log.daysBefore} дней до дедлайна`}
                       </p>
-                      <p className="text-slate-400">
+                      <p className="text-muted-foreground/60">
                         {new Date(log.sentAt).toLocaleString('ru-KZ')}
                       </p>
                     </div>
@@ -321,13 +325,13 @@ export default function SettingsPage() {
         </Card>
 
         {/* About */}
-        <Card className="border-slate-200 shadow-sm">
+        <Card className="rct-card">
           <CardContent className="py-6 text-center">
-            <p className="text-sm font-semibold text-slate-900">BizPulse KZ</p>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="rct-subsection-title">BizPulse KZ</p>
+            <p className="text-xs text-muted-foreground mt-1">
               Весь бизнес на одном экране за 30 секунд
             </p>
-            <p className="text-xs text-slate-400 mt-2">MVP v1.0 · 2026 · Казахстан 🇰🇿</p>
+            <p className="text-xs text-muted-foreground/60 mt-2">MVP v1.0 · 2026</p>
           </CardContent>
         </Card>
       </div>

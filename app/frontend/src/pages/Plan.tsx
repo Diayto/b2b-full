@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getSession, getTransactions, getCustomers, getInvoices, getMarketingSpend, getDocuments } from '@/lib/store';
 import { formatKZT, generateMonthlyBusinessPlan } from '@/lib/metrics';
 import type { PlanArea, PlanPriority } from '@/lib/types';
@@ -21,9 +20,9 @@ const priorityLabel: Record<PlanPriority, string> = {
 };
 
 const priorityClass: Record<PlanPriority, string> = {
-  high: 'text-red-700 border-red-300',
-  medium: 'text-amber-700 border-amber-300',
-  low: 'text-blue-700 border-blue-300',
+  high: 'text-rose-600 dark:text-rose-400 border-rose-300/60 dark:border-rose-800/40',
+  medium: 'text-yellow-700 dark:text-yellow-400 border-yellow-300/60 dark:border-yellow-800/40',
+  low: 'text-primary border-primary/30',
 };
 
 export default function PlanPage() {
@@ -49,96 +48,93 @@ export default function PlanPage() {
 
   return (
     <AppLayout>
-      <div className="p-4 lg:p-6 space-y-6 max-w-[1200px] mx-auto">
+      <div className="rct-page p-4 lg:p-6 space-y-8 max-w-[1400px] mx-auto">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">План на следующий месяц</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Прогноз и конкретный план действий по данным компании за период {plan.period}
+          <h1 className="rct-page-title">План на следующий месяц</h1>
+          <p className="rct-body-micro mt-1">
+            Прогноз и план действий за период {plan.period}
           </p>
         </div>
 
+        {/* Forecast KPIs */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card className="border-slate-200 shadow-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-500">Прогноз выручки</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-emerald-600">{formatKZT(plan.forecastRevenue)}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-slate-200 shadow-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-500">Прогноз расходов</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-red-600">{formatKZT(plan.forecastExpenses)}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-slate-200 shadow-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-slate-500">Прогноз прибыли</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className={`text-2xl font-bold ${plan.forecastProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                {formatKZT(plan.forecastProfit)}
-              </p>
-            </CardContent>
-          </Card>
+          <div className="rct-stat-box-emerald">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Прогноз выручки</div>
+            <div className="text-xl font-bold mt-2 tracking-tight text-foreground">{formatKZT(plan.forecastRevenue)}</div>
+          </div>
+          <div className="rct-stat-box-amber">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Прогноз расходов</div>
+            <div className="text-xl font-bold mt-2 tracking-tight text-foreground">{formatKZT(plan.forecastExpenses)}</div>
+          </div>
+          <div className={plan.forecastProfit >= 0 ? 'rct-stat-box-emerald' : 'rct-stat-box-amber'}>
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Прогноз прибыли</div>
+            <div className="text-xl font-bold mt-2 tracking-tight text-foreground">{formatKZT(plan.forecastProfit)}</div>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <Card className="border-slate-200 shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-base">Сильные стороны</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm text-slate-600">
-              {plan.strengths.length > 0 ? plan.strengths.map((item) => (
-                <p key={item}>• {item}</p>
-              )) : <p>Пока недостаточно данных для вывода сильных сторон.</p>}
-            </CardContent>
-          </Card>
-          <Card className="border-slate-200 shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-base">Слабые места</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm text-slate-600">
-              {plan.weaknesses.length > 0 ? plan.weaknesses.map((item) => (
-                <p key={item}>• {item}</p>
-              )) : <p>Критичных слабых зон не выявлено по текущим данным.</p>}
-            </CardContent>
-          </Card>
-          <Card className="border-slate-200 shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-base">Риски</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm text-slate-600">
-              {plan.risks.length > 0 ? plan.risks.map((item) => (
-                <p key={item}>• {item}</p>
-              )) : <p>Критичных рисков на следующий месяц не выявлено.</p>}
-            </CardContent>
-          </Card>
+        {/* SWOT cards */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="rct-card rct-card-padding space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-teal-500 dark:bg-teal-400 shrink-0" />
+              <h3 className="rct-section-title">Сильные стороны</h3>
+            </div>
+            {plan.strengths.length > 0 ? plan.strengths.map((item) => (
+              <div key={item} className="flex items-start gap-2 text-sm text-muted-foreground">
+                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-teal-400 dark:bg-teal-500 shrink-0" />
+                {item}
+              </div>
+            )) : <p className="text-sm text-muted-foreground">Пока недостаточно данных.</p>}
+          </div>
+
+          <div className="rct-card rct-card-padding space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-yellow-500 dark:bg-yellow-400 shrink-0" />
+              <h3 className="rct-section-title">Слабые места</h3>
+            </div>
+            {plan.weaknesses.length > 0 ? plan.weaknesses.map((item) => (
+              <div key={item} className="flex items-start gap-2 text-sm text-muted-foreground">
+                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-yellow-400 dark:bg-yellow-500 shrink-0" />
+                {item}
+              </div>
+            )) : <p className="text-sm text-muted-foreground">Критичных слабых зон не выявлено.</p>}
+          </div>
+
+          <div className="rct-card rct-card-padding space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-rose-500 dark:bg-rose-400 shrink-0" />
+              <h3 className="rct-section-title">Риски</h3>
+            </div>
+            {plan.risks.length > 0 ? plan.risks.map((item) => (
+              <div key={item} className="flex items-start gap-2 text-sm text-muted-foreground">
+                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-rose-400 dark:bg-rose-500 shrink-0" />
+                {item}
+              </div>
+            )) : <p className="text-sm text-muted-foreground">Критичных рисков не выявлено.</p>}
+          </div>
         </div>
 
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base">План действий</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
+        {/* Action plan */}
+        <div className="rct-card-raised rct-card-padding space-y-4">
+          <h2 className="rct-section-title">План действий</h2>
+          <div className="space-y-3">
             {plan.actions.map((action) => (
-              <div key={action.id} className="rounded-lg border border-slate-200 p-4">
+              <div key={action.id} className="rct-card-inset p-4 transition-colors hover:bg-muted/50">
                 <div className="flex flex-wrap items-center gap-2 mb-2">
-                  <Badge variant="outline">{areaLabel[action.area]}</Badge>
-                  <Badge variant="outline" className={priorityClass[action.priority]}>
+                  <Badge variant="outline" className="text-xs font-medium text-muted-foreground">
+                    {areaLabel[action.area]}
+                  </Badge>
+                  <Badge variant="outline" className={`text-xs font-medium ${priorityClass[action.priority]}`}>
                     {priorityLabel[action.priority]}
                   </Badge>
                 </div>
-                <p className="text-sm font-semibold text-slate-900">{action.title}</p>
-                <p className="text-sm text-slate-600 mt-1">{action.rationale}</p>
-                <p className="text-xs text-slate-500 mt-2">Цель: {action.target}</p>
+                <p className="rct-subsection-title">{action.title}</p>
+                <p className="text-sm text-muted-foreground mt-1 leading-snug">{action.rationale}</p>
+                <p className="text-xs text-muted-foreground/70 mt-2 font-medium">Цель: {action.target}</p>
               </div>
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     </AppLayout>
   );
