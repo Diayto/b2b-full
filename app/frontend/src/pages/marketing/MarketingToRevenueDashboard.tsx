@@ -33,6 +33,7 @@ import {
   classifySources,
   computeContentPerformance,
   explainROI,
+  isDateInRangeInclusive,
 } from '@/lib/analytics';
 import { formatKZT } from '@/lib/metrics';
 import type { RevenueControlTowerAnalytics } from '@/lib/analytics/revenueControlTower';
@@ -204,10 +205,55 @@ export default function MarketingToRevenueDashboard() {
     () => classifySources(sourcePerformanceRows),
     [sourcePerformanceRows],
   );
-  const contentPerformance = useMemo(
-    () => computeContentPerformance(contentMetrics, 5),
-    [contentMetrics],
+  const contentInRange = useMemo(
+    () => contentMetrics.filter((cm) => isDateInRangeInclusive(cm.publishedAt, analyticsRange)),
+    [contentMetrics, analyticsRange],
   );
+  const hasAnyContentMetrics = contentMetrics.length > 0;
+  const hasOrganicInRange = contentInRange.length > 0;
+
+  const contentPerformance = useMemo(
+    () => computeContentPerformance(contentInRange, 5),
+    [contentInRange],
+  );
+
+  // Organic funnel totals (derived from manually imported `content_metrics`)
+  const organicTotals = useMemo(() => {
+    let reach = 0;
+    let likes = 0;
+    let comments = 0;
+    let saves = 0;
+    let shares = 0;
+    let profileVisits = 0;
+    let inboundMessages = 0;
+    let leadsGenerated = 0;
+    let dealsGenerated = 0;
+    let paidConversions = 0;
+
+    for (const m of contentInRange) {
+      reach += m.reach;
+      likes += m.likes;
+      comments += m.comments;
+      saves += m.saves;
+      shares += m.shares;
+      profileVisits += m.profileVisits;
+      inboundMessages += m.inboundMessages;
+      leadsGenerated += m.leadsGenerated;
+      dealsGenerated += m.dealsGenerated;
+      paidConversions += m.paidConversions;
+    }
+
+    const engagement = likes + comments + saves + shares;
+    return {
+      reach,
+      engagement,
+      profileVisits,
+      inboundMessages,
+      leadsGenerated,
+      dealsGenerated,
+      paidConversions,
+    };
+  }, [contentInRange]);
 
   const recommendationItems = useMemo(
     () =>
@@ -238,28 +284,24 @@ export default function MarketingToRevenueDashboard() {
     ].sort((a, b) => b.v - a.v)[0];
   }, [analytics.funnelDropOff]);
 
-  // Channel performance table data sorted by ROI
+  // Channel performance table data (derived from shared `computeSourcePerformance`)
   const channelTableData = useMemo(() => {
-    return rows
-      .map((r) => {
-        const roi = r.marketingSpend > 0 ? ((r.paidRevenue - r.marketingSpend) / r.marketingSpend) * 100 : null;
-        const convRate = r.leads > 0 ? (r.wonDeals / r.leads) * 100 : 0;
-        return {
-          id: r.channelCampaignExternalId,
-          name: channelNameById.get(r.channelCampaignExternalId) ?? r.channelCampaignExternalId,
-          cost: r.marketingSpend,
-          leads: r.leads,
-          deals: r.deals,
-          wonDeals: r.wonDeals,
-          convRate,
-          revenue: r.paidRevenue,
-          roi,
-          leadToDeal: r.leadToDealConversion,
-          dealToPaid: r.dealToPaidConversion,
-        };
-      })
+    return sourcePerformanceRows
+      .map((r) => ({
+        id: r.channelCampaignExternalId,
+        name: r.name,
+        cost: r.cost,
+        leads: r.leads,
+        deals: r.deals,
+        wonDeals: r.wonDeals,
+        convRate: r.conversionRate,
+        revenue: r.revenue,
+        roi: r.roi,
+        leadToDeal: r.leadToDealRate, // 0..1
+        dealToPaid: r.dealToPaidRate, // 0..1
+      }))
       .sort((a, b) => (b.roi ?? -999) - (a.roi ?? -999));
-  }, [rows, channelNameById]);
+  }, [sourcePerformanceRows]);
 
   return (
     <div className="rct-page p-4 lg:p-6 max-w-[1400px] mx-auto space-y-6">
@@ -345,6 +387,150 @@ export default function MarketingToRevenueDashboard() {
               }}
             />
           </div>
+
+          {/* ============================================= */}
+          {/* ORGANIC FUNNEL (content_metrics input)      */}
+          {/* ============================================= */}
+          <section className="space-y-4">
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-bold text-foreground">Органическая воронка (Instagram / TikTok / соцсети)</h3>
+              <Badge variant="outline" className="text-xs">
+                {hasOrganicInRange ? `${organicTotals.reach} охватов` : 'нет данных'}
+              </Badge>
+            </div>
+
+            <div className="rct-card-inset p-4 border-dashed">
+              <p className="text-sm text-muted-foreground">
+                Подключение Meta Graph API сейчас не настроено. Для органики используйте <strong>ручной импорт</strong> файла{' '}
+                <strong>content_metrics</strong> (поля: reach, engagement/likes, DMs, leads, deals, paid conversions). В будущем подключим прямую выгрузку Meta.
+              </p>
+            </div>
+
+            {!hasOrganicInRange ? (
+              <p className="text-sm text-muted-foreground">В выбранном периоде нет данных по <strong>content_metrics</strong>. Загрузите отчёт — и появится органическая воронка.</p>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <div className="rct-card rct-card-padding">
+                  <SectionHeader title="Reach → Engagement → Profile Visits → Messages → Leads → Deals → Paid" size="sm" />
+                  <div className="mt-4 space-y-4">
+                    {(() => {
+                      const maxVal = Math.max(
+                        organicTotals.reach,
+                        organicTotals.engagement,
+                        organicTotals.profileVisits,
+                        organicTotals.inboundMessages,
+                        organicTotals.leadsGenerated,
+                        organicTotals.dealsGenerated,
+                        organicTotals.paidConversions,
+                        1,
+                      );
+
+                      const reachToEng =
+                        organicTotals.reach > 0 ? percentFromRatio(organicTotals.engagement / organicTotals.reach) : undefined;
+                      const engToProfile =
+                        organicTotals.engagement > 0 ? percentFromRatio(organicTotals.profileVisits / organicTotals.engagement) : undefined;
+                      const profileToMsg =
+                        organicTotals.profileVisits > 0 ? percentFromRatio(organicTotals.inboundMessages / organicTotals.profileVisits) : undefined;
+                      const msgToLeads =
+                        organicTotals.inboundMessages > 0 ? percentFromRatio(organicTotals.leadsGenerated / organicTotals.inboundMessages) : undefined;
+                      const leadsToDeals =
+                        organicTotals.leadsGenerated > 0 ? percentFromRatio(organicTotals.dealsGenerated / organicTotals.leadsGenerated) : undefined;
+                      const dealsToPaid =
+                        organicTotals.dealsGenerated > 0 ? percentFromRatio(organicTotals.paidConversions / organicTotals.dealsGenerated) : undefined;
+
+                      return (
+                        <>
+                          <FunnelStep
+                            label="Reach"
+                            value={organicTotals.reach}
+                            conversionRate={reachToEng}
+                            colorClass="bg-foreground/60"
+                            maxValue={maxVal}
+                          />
+                          <FunnelStep
+                            label="Engagement"
+                            value={organicTotals.engagement}
+                            conversionRate={engToProfile}
+                            colorClass="bg-primary/60"
+                            maxValue={maxVal}
+                          />
+                          <FunnelStep
+                            label="Profile visits"
+                            value={organicTotals.profileVisits}
+                            conversionRate={profileToMsg}
+                            colorClass="bg-indigo-500/50 dark:bg-indigo-400/50"
+                            maxValue={maxVal}
+                          />
+                          <FunnelStep
+                            label="Messages / DMs"
+                            value={organicTotals.inboundMessages}
+                            conversionRate={msgToLeads}
+                            colorClass="bg-amber-500/50 dark:bg-amber-400/50"
+                            maxValue={maxVal}
+                          />
+                          <FunnelStep
+                            label="Leads"
+                            value={organicTotals.leadsGenerated}
+                            conversionRate={leadsToDeals}
+                            colorClass="bg-teal-600/45 dark:bg-teal-500/45"
+                            maxValue={maxVal}
+                          />
+                          <FunnelStep
+                            label="Deals"
+                            value={organicTotals.dealsGenerated}
+                            conversionRate={dealsToPaid}
+                            colorClass="bg-emerald-600/45 dark:bg-emerald-500/45"
+                            maxValue={maxVal}
+                          />
+                          <FunnelStep
+                            label="Paid"
+                            value={organicTotals.paidConversions}
+                            isLast
+                            colorClass="bg-teal-500/70 dark:bg-teal-400/60"
+                            maxValue={maxVal}
+                          />
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                <div className="rct-card rct-card-padding">
+                  <SectionHeader title="Частичные данные (без подстановок)" size="sm" description="Показываем что есть в импортированном отчёте." />
+                  <div className="mt-4 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm text-muted-foreground">Reach</span>
+                      <Badge variant="outline" className="text-[11px]">
+                        {organicTotals.reach > 0 ? 'данные есть' : 'нет данных'}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm text-muted-foreground">Profile visits</span>
+                      <Badge variant="outline" className="text-[11px]">
+                        {organicTotals.profileVisits > 0 ? 'данные есть' : 'нет данных в поле'}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm text-muted-foreground">Messages / DMs</span>
+                      <Badge variant="outline" className="text-[11px]">
+                        {organicTotals.inboundMessages > 0 ? 'данные есть' : 'нет данных в поле'}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm text-muted-foreground">Leads → Deals → Paid</span>
+                      <Badge variant="outline" className="text-[11px]">
+                        {organicTotals.leadsGenerated > 0 ? 'воронка частично посчитана' : 'нет данных по лидам'}
+                      </Badge>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Конверсии считаются только по тем значениям, которые есть в <strong>content_metrics</strong>. Если поле отсутствует/нулевое, то и конверсия будет некорректной — мы не подставляем числа.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
 
           {/* ============================================= */}
           {/* LAYER A: ORGANIC / SOCIAL FUNNEL              */}
@@ -535,15 +721,22 @@ export default function MarketingToRevenueDashboard() {
               <h3 className="text-base font-bold text-foreground">Аналитика по источникам</h3>
             </div>
 
-            {/* Content analytics (when content metrics exist) */}
-            {contentMetrics.length === 0 && (
+            {/* Content analytics (when content metrics exist in the system) */}
+            {!hasAnyContentMetrics && (
               <div className="rct-card-inset p-4 mb-5 border-dashed">
                 <p className="text-sm text-muted-foreground">
                   <strong>Нет данных по контенту.</strong> Загрузите файл content_metrics в разделе Загрузки — тогда появится аналитика по публикациям и вовлечению.
                 </p>
               </div>
             )}
-            {contentMetrics.length > 0 && (
+            {hasAnyContentMetrics && !hasOrganicInRange && (
+              <div className="rct-card-inset p-4 mb-5 border-dashed">
+                <p className="text-sm text-muted-foreground">
+                  В выбранном периоде нет <strong>content_metrics</strong>. Загрузите отчёт за нужные даты — и появится органическая воронка и контент-анализ.
+                </p>
+              </div>
+            )}
+            {hasOrganicInRange && (
               <div className="rct-card rct-card-padding mb-5">
                 <SectionHeader title="Контент / органика" size="sm" description="Топ и слабые публикации по вовлечению" />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
@@ -611,7 +804,7 @@ export default function MarketingToRevenueDashboard() {
                               {idx + 1}. {s.name}
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              {s.leads} лидов · {percentFromRatio(s.leadToDeal)} лид→сделка
+                              {s.leads} лидов · {percentFromRatio(s.leadToDealRate)} лид→сделка
                             </p>
                           </div>
                           <div className="text-right shrink-0">
@@ -648,7 +841,7 @@ export default function MarketingToRevenueDashboard() {
                               {idx + 1}. {s.name}
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              {s.leads} лидов · {percentFromRatio(s.dealToPaid)} сделка→оплата
+                              {s.leads} лидов · {percentFromRatio(s.dealToPaidRate)} сделка→оплата
                             </p>
                           </div>
                           <div className="text-right shrink-0">

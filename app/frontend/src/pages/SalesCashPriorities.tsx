@@ -14,6 +14,7 @@ import MetricHelpIcon from '@/components/controltower/MetricHelpIcon';
 import SectionHeader from '@/components/controltower/SectionHeader';
 import RankedListItem from '@/components/controltower/RankedListItem';
 import EmptyStateCard from '@/components/controltower/EmptyStateCard';
+import { TrustBadge } from '@/components/controltower';
 import RecommendationsCard from '@/components/RecommendationsCard';
 import { buildRecommendations } from '@/lib/recommendations';
 import { cn } from '@/lib/utils';
@@ -29,12 +30,14 @@ import type { DateRange } from '@/lib/types';
 import {
   calculateRevenueControlTowerAnalytics,
   buildRevenueControlTowerModel,
-  computeUnifiedFunnel,
-  computeLeakageAnalysis,
   computeLostDealsAnalysis,
   computeSystemCompleteness,
   LOST_REASON_LABELS,
-  FUNNEL_STAGE_LABELS,
+  STALLED_REASON_LABELS,
+  resolveInvoiceOutstandingExact,
+  isDateInRangeInclusive,
+  isValidYmd,
+  type StalledReason,
 } from '@/lib/analytics';
 import type { RevenueControlTowerAnalytics } from '@/lib/analytics/revenueControlTower';
 import {
@@ -178,13 +181,7 @@ export default function SalesCashPrioritiesPage() {
     [analytics, channelNameById]
   );
 
-  // --- Lost Deals Analysis (shared analytics) ---
-  const lostDealsAnalysis = useMemo(
-    () => computeLostDealsAnalysis(deals, managers),
-    [deals, managers]
-  );
-
-  // --- Model, Leakage, Lower Funnel (shared analytics) ---
+  // --- Model ---
   const model = useMemo(
     () =>
       buildRevenueControlTowerModel({
@@ -200,35 +197,409 @@ export default function SalesCashPrioritiesPage() {
     [channelCampaigns, leads, deals, invoices, payments, customers, marketingSpend, managers]
   );
 
-  const leakage = useMemo(
-    () =>
-      computeLeakageAnalysis({
-        model,
-        contentMetrics: contentMetrics.length > 0 ? contentMetrics : undefined,
-      }),
-    [model, contentMetrics]
-  );
+  // --- Period slice (all diagnostics must follow the selected range) ---
+  const todayMidnight = useMemo(() => new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()), []);
+  const todayTs = todayMidnight.getTime();
 
+  const dealsInPeriod = useMemo(() => {
+    return deals.filter((d) => d.createdDate && isDateInRangeInclusive(d.createdDate, analyticsRange));
+  }, [deals, analyticsRange]);
+
+  const leadsInPeriod = useMemo(() => {
+    return leads.filter((l) => l.createdDate && isDateInRangeInclusive(l.createdDate, analyticsRange));
+  }, [leads, analyticsRange]);
+
+  const wonDealsStageSet = useMemo(() => {
+    const leadsIdSet = new Set(leadsInPeriod.map((l) => l.leadExternalId));
+    const dealsStage = dealsInPeriod.filter((d) => d.leadExternalId && leadsIdSet.has(d.leadExternalId));
+
+    const won = dealsStage.filter((d) => {
+      if (d.status !== 'won') return false;
+      if (d.wonDate) return isDateInRangeInclusive(d.wonDate, analyticsRange);
+      return true; // backward compatibility: won without wonDate is still in the stage
+    });
+
+    return new Set(won.map((d) => d.dealExternalId));
+  }, [dealsInPeriod, leadsInPeriod, analyticsRange]);
+
+  const invoicesInPeriod = useMemo(() => {
+    return invoices.filter(
+      (inv) => inv.dueDate && isValidYmd(inv.dueDate) && isDateInRangeInclusive(inv.dueDate, analyticsRange),
+    );
+  }, [invoices, analyticsRange]);
+
+  const invoicedWonDealsCount = useMemo(() => {
+    const set = new Set<string>();
+    for (const inv of invoicesInPeriod) {
+      if (!inv.dealExternalId) continue;
+      if (wonDealsStageSet.has(inv.dealExternalId)) set.add(inv.dealExternalId);
+    }
+    return set.size;
+  }, [invoicesInPeriod, wonDealsStageSet]);
+
+  const avgDealValueInPeriod = useMemo(() => {
+    const paidWon = analytics.funnelDropOff.paidWonDeals;
+    if (paidWon <= 0) return undefined;
+    if (!analytics.revenue.value || analytics.revenue.value <= 0) return undefined;
+    return analytics.revenue.value / paidWon;
+  }, [analytics.funnelDropOff.paidWonDeals, analytics.revenue.value]);
+
+  type TrustLevel = 'exact' | 'fallback' | 'incomplete';
+
+  const toTrustLevel = (score: number): TrustLevel => {
+    if (score >= 80) return 'exact';
+    if (score >= 50) return 'fallback';
+    return 'incomplete';
+  };
+
+  const getInvoiceOutstanding = (() => {
+    const cache = new Map<string, { outstanding: number; isExact: boolean }>();
+    return (invoice: (typeof invoices)[number]): { outstanding: number; isExact: boolean } => {
+      const key = invoice.invoiceExternalId ?? invoice.id;
+      const cached = cache.get(key);
+      if (cached) return cached;
+      const res = resolveInvoiceOutstandingExact(model, invoice);
+      const next = { outstanding: res.outstanding, isExact: res.isExact };
+      cache.set(key, next);
+      return next;
+    };
+  })();
+
+  // --- Unified "why money is not reaching payment" rows ---
+  type MoneyLeakageRow = {
+    id: string;
+    entityType: 'deal' | 'invoice' | 'customer';
+    dealExternalId?: string;
+    invoiceExternalId?: string;
+    customerExternalId?: string;
+    problemStage: string;
+    reason: string;
+    amountAtRisk: number | null;
+    trust: TrustLevel;
+    owner: string;
+    lastActivity?: string;
+    recommendedNextAction: string;
+  };
+
+  const moneyLeakageRows = useMemo<MoneyLeakageRow[]>(() => {
+    if (!dealsInPeriod.length && !invoicesInPeriod.length) return [];
+
+    const rows: MoneyLeakageRow[] = [];
+    const average = avgDealValueInPeriod;
+
+    const getManagerForDeal = (deal?: { managerExternalId?: string }) => {
+      if (!deal?.managerExternalId) return '—';
+      return managerNameById.get(deal.managerExternalId) ?? deal.managerExternalId ?? '—';
+    };
+
+    // LOST DEALS (created in period, status=lost)
+    for (const d of dealsInPeriod) {
+      if (d.status !== 'lost') continue;
+      const linkedInvoices = model.invoicesByDealExternalId.get(d.dealExternalId) ?? [];
+      const unpaidInWindow = linkedInvoices.filter(
+        (inv) => inv.status === 'unpaid' && inv.dueDate && isValidYmd(inv.dueDate) && isDateInRangeInclusive(inv.dueDate, analyticsRange),
+      );
+
+      let outstandingSum = 0;
+      let allExact = true;
+      for (const inv of unpaidInWindow) {
+        const out = getInvoiceOutstanding(inv);
+        outstandingSum += out.outstanding;
+        allExact = allExact && out.isExact;
+      }
+
+      const amount = outstandingSum > 0 ? outstandingSum : average ?? null;
+      const trust: TrustLevel = outstandingSum > 0 ? (allExact ? 'exact' : 'fallback') : amount !== null ? 'fallback' : 'incomplete';
+
+      rows.push({
+        id: `lost_${d.dealExternalId}`,
+        entityType: 'deal',
+        dealExternalId: d.dealExternalId,
+        customerExternalId: d.customerExternalId ?? '—',
+        problemStage: 'Потеря: сделка lost',
+        reason: LOST_REASON_LABELS[d.lostReason ?? 'other'] ?? d.lostReason ?? '—',
+        amountAtRisk: amount,
+        trust,
+        owner: getManagerForDeal(d),
+        lastActivity: d.lostDate ?? d.lastActivityDate ?? d.createdDate,
+        recommendedNextAction: 'Разобрать причину потерь и скорректировать оффер/скрипт',
+      });
+    }
+
+    // STALLED DEALS (created in period, open, stalled by last activity age)
+    const STALLED_THRESHOLD_DAYS = 14;
+    for (const d of dealsInPeriod) {
+      if (d.status !== 'open') continue;
+      const activityYmd = d.lastActivityDate ?? d.expectedCloseDate;
+      if (!activityYmd || !isValidYmd(activityYmd)) continue;
+      if (!isDateInRangeInclusive(activityYmd, analyticsRange)) continue;
+
+      const activityTs = new Date(activityYmd + 'T00:00:00').getTime();
+      const ageDays = Math.max(0, Math.floor((todayTs - activityTs) / 86_400_000));
+      if (ageDays < STALLED_THRESHOLD_DAYS) continue;
+
+      const linkedInvoices = model.invoicesByDealExternalId.get(d.dealExternalId) ?? [];
+      const unpaidInWindow = linkedInvoices.filter(
+        (inv) => inv.status === 'unpaid' && inv.dueDate && isValidYmd(inv.dueDate) && isDateInRangeInclusive(inv.dueDate, analyticsRange),
+      );
+
+      let outstandingSum = 0;
+      let allExact = true;
+      for (const inv of unpaidInWindow) {
+        const out = getInvoiceOutstanding(inv);
+        outstandingSum += out.outstanding;
+        allExact = allExact && out.isExact;
+      }
+
+      const amount = outstandingSum > 0 ? outstandingSum : average ?? null;
+      const trust: TrustLevel = outstandingSum > 0 ? (allExact ? 'exact' : 'fallback') : amount !== null ? 'fallback' : 'incomplete';
+
+      const stalledReasonKey = d.stalledReason as unknown as keyof typeof STALLED_REASON_LABELS;
+      const stalledReasonLabel =
+        (stalledReasonKey && STALLED_REASON_LABELS[stalledReasonKey as StalledReason]) ||
+        STALLED_REASON_LABELS.other;
+
+      rows.push({
+        id: `stalled_${d.dealExternalId}`,
+        entityType: 'deal',
+        dealExternalId: d.dealExternalId,
+        customerExternalId: d.customerExternalId ?? '—',
+        problemStage: 'Задержка: застрявшая сделка',
+        reason: stalledReasonLabel === STALLED_REASON_LABELS.other ? `Нет активности (${ageDays} дн.)` : stalledReasonLabel,
+        amountAtRisk: amount,
+        trust,
+        owner: getManagerForDeal(d),
+        lastActivity: d.lastActivityDate ?? d.expectedCloseDate,
+        recommendedNextAction: actionTypeLabelMap.reengage_stalled_deal,
+      });
+    }
+
+    // WON but NOT INVOICED IN WINDOW (won in period, status=won)
+    for (const d of dealsInPeriod) {
+      if (d.status !== 'won') continue;
+      if (d.wonDate && !isDateInRangeInclusive(d.wonDate, analyticsRange)) continue;
+      const linkedInvoices = model.invoicesByDealExternalId.get(d.dealExternalId) ?? [];
+      const hasInvoiceInWindow = linkedInvoices.some(
+        (inv) => inv.dueDate && isValidYmd(inv.dueDate) && isDateInRangeInclusive(inv.dueDate, analyticsRange),
+      );
+      if (hasInvoiceInWindow) continue;
+
+      rows.push({
+        id: `won_not_invoiced_${d.dealExternalId}`,
+        entityType: 'deal',
+        dealExternalId: d.dealExternalId,
+        customerExternalId: d.customerExternalId ?? '—',
+        problemStage: 'Сделка выиграна, счёт не выставлен (в периоде)',
+        reason: 'Нет выставленного счёта в выбранном окне',
+        amountAtRisk: average ?? null,
+        trust: average ? 'fallback' : 'incomplete',
+        owner: getManagerForDeal(d),
+        lastActivity: d.wonDate ?? d.lastActivityDate ?? d.createdDate,
+        recommendedNextAction: 'Выставить счёт по сделке',
+      });
+    }
+
+    // INVOICED but UNPAID (not overdue)
+    for (const inv of invoicesInPeriod) {
+      if (inv.status !== 'unpaid') continue;
+      const dueTs = inv.dueDate ? new Date(inv.dueDate + 'T00:00:00').getTime() : NaN;
+      if (!Number.isFinite(dueTs)) continue;
+      if (dueTs < todayTs) continue; // overdue is handled next
+
+      const out = getInvoiceOutstanding(inv);
+      const deal = inv.dealExternalId ? model.dealByExternalId.get(inv.dealExternalId) : undefined;
+      const owner = getManagerForDeal(deal);
+
+      rows.push({
+        id: `invoiced_unpaid_${inv.invoiceExternalId ?? inv.id}`,
+        entityType: 'invoice',
+        invoiceExternalId: inv.invoiceExternalId ?? inv.id,
+        customerExternalId: inv.customerExternalId ?? '—',
+        dealExternalId: inv.dealExternalId,
+        problemStage: 'Счёт выставлен, оплата не поступила',
+        reason: 'Не оплачено в срок',
+        amountAtRisk: out.outstanding > 0 ? out.outstanding : inv.amount > 0 ? inv.amount : null,
+        trust: out.outstanding > 0 ? (out.isExact ? 'exact' : 'fallback') : 'incomplete',
+        owner,
+        lastActivity: inv.invoiceDate ?? inv.dueDate,
+        recommendedNextAction: actionTypeLabelMap.follow_up_unpaid_invoice,
+      });
+    }
+
+    // OVERDUE (in-window overdue)
+    const overdueRows: MoneyLeakageRow[] = [];
+    for (const inv of invoicesInPeriod) {
+      if (inv.status !== 'unpaid') continue;
+      const dueTs = inv.dueDate ? new Date(inv.dueDate + 'T00:00:00').getTime() : NaN;
+      if (!Number.isFinite(dueTs)) continue;
+      if (dueTs >= todayTs) continue;
+
+      const out = getInvoiceOutstanding(inv);
+      const daysOver = Math.floor((todayTs - dueTs) / 86_400_000);
+      const deal = inv.dealExternalId ? model.dealByExternalId.get(inv.dealExternalId) : undefined;
+      const owner = getManagerForDeal(deal);
+
+      overdueRows.push({
+        id: `overdue_${inv.invoiceExternalId ?? inv.id}`,
+        entityType: 'invoice',
+        invoiceExternalId: inv.invoiceExternalId ?? inv.id,
+        customerExternalId: inv.customerExternalId ?? '—',
+        dealExternalId: inv.dealExternalId,
+        problemStage: 'Просрочка: оплата не поступила',
+        reason: `Просрочка ${daysOver} дн.`,
+        amountAtRisk: out.outstanding > 0 ? out.outstanding : inv.amount > 0 ? inv.amount : null,
+        trust: out.outstanding > 0 ? (out.isExact ? 'exact' : 'fallback') : 'incomplete',
+        owner,
+        lastActivity: inv.dueDate ?? inv.invoiceDate,
+        recommendedNextAction: actionTypeLabelMap.collect_overdue_invoice,
+      });
+    }
+    rows.push(...overdueRows);
+
+    // DELAYED customers (group overdue invoices in-window)
+    const overdueByCustomer = new Map<string, { total: number; count: number; maxRow: MoneyLeakageRow | null }>();
+    for (const r of overdueRows) {
+      const cid = r.customerExternalId ?? '—';
+      if (!overdueByCustomer.has(cid)) {
+        overdueByCustomer.set(cid, { total: 0, count: 0, maxRow: r });
+      }
+      const prev = overdueByCustomer.get(cid)!;
+      if (r.amountAtRisk !== null) prev.total += r.amountAtRisk;
+      prev.count += 1;
+      if (!prev.maxRow || (r.amountAtRisk ?? 0) > (prev.maxRow.amountAtRisk ?? 0)) prev.maxRow = r;
+    }
+
+    for (const [cid, data] of overdueByCustomer.entries()) {
+      rows.push({
+        id: `delayed_customer_${cid}`,
+        entityType: 'customer',
+        customerExternalId: cid,
+        problemStage: 'Задержка клиента (несколько просрочек)',
+        reason: `${data.count} просроченных счёта(ов) в периоде`,
+        amountAtRisk: data.total > 0 ? data.total : null,
+        trust: data.total > 0 ? 'exact' : 'incomplete',
+        owner: data.maxRow?.owner ?? '—',
+        lastActivity: data.maxRow?.lastActivity,
+        recommendedNextAction: actionTypeLabelMap.prioritize_delayed_customer,
+      });
+    }
+
+    // Sort by risk amount desc (unknown at end)
+    return rows.sort((a, b) => (b.amountAtRisk ?? -1) - (a.amountAtRisk ?? -1));
+  }, [
+    dealsInPeriod,
+    invoicesInPeriod,
+    analyticsRange,
+    model,
+    managerNameById,
+    avgDealValueInPeriod,
+    todayTs,
+  ]);
+
+  // Compatibility layer for existing UI cards
   const lowerFunnelStageData = useMemo(() => {
-    const wonDeals = deals.filter((d) => d.status === 'won');
-    const invoicedCount = invoices.filter((inv) => {
-      if (!inv.dealExternalId) return false;
-      const deal = model.dealByExternalId.get(inv.dealExternalId);
-      return deal?.status === 'won';
-    }).length;
-    const paidInPeriod = payments.filter(
-      (p) => p.paymentDate && p.amount > 0
-    ).length;
     return {
-      deal: deals.length,
-      won: wonDeals.length,
-      invoiced: invoicedCount,
+      deal: analytics.funnelDropOff.deals,
+      won: analytics.funnelDropOff.wonDeals,
+      invoiced: invoicedWonDealsCount,
       paid: analytics.funnelDropOff.paidWonDeals,
     };
-  }, [deals, invoices, model.dealByExternalId, payments, analytics.funnelDropOff.paidWonDeals]);
+  }, [analytics.funnelDropOff.deals, analytics.funnelDropOff.wonDeals, analytics.funnelDropOff.paidWonDeals, invoicedWonDealsCount]);
 
-  const overdueInvoicesCount = analytics.salesCashPriority.overdueInvoices.length;
-  const unpaidInvoicesCount = analytics.salesCashPriority.unpaidInvoices.length;
+  const periodOverdueInvoices = useMemo(() => {
+    return moneyLeakageRows
+      .filter((r) => r.entityType === 'invoice' && r.problemStage.startsWith('Просрочка'))
+      .map((r) => ({
+        invoiceExternalId: r.invoiceExternalId,
+        customerExternalId: r.customerExternalId,
+        dueDate: r.lastActivity,
+        overdueAmount: r.amountAtRisk ?? 0,
+      }));
+  }, [moneyLeakageRows]);
+
+  const periodUnpaidInvoices = useMemo(() => {
+    return moneyLeakageRows
+      .filter((r) => r.entityType === 'invoice' && r.problemStage.includes('оплата не поступила'))
+      .map((r) => ({
+        invoiceExternalId: r.invoiceExternalId,
+        customerExternalId: r.customerExternalId,
+        invoiceDate: r.lastActivity ?? '',
+        outstanding: r.amountAtRisk ?? 0,
+        dueDate: undefined as string | undefined,
+      }));
+  }, [moneyLeakageRows]);
+
+  const periodStalledDeals = useMemo(() => {
+    return moneyLeakageRows
+      .filter((r) => r.entityType === 'deal' && r.problemStage.startsWith('Задержка'))
+      .map((r) => ({
+        dealExternalId: r.dealExternalId ?? '',
+        lastActivityDate: r.lastActivity,
+        overdueAmountLinked: r.amountAtRisk ?? 0,
+      }))
+      .filter((d) => d.dealExternalId);
+  }, [moneyLeakageRows]);
+
+  const periodDelayedCustomers = useMemo(() => {
+    const byCustomer = new Map<string, { overdueAmount: number; overdueInvoiceCount: number }>();
+    for (const inv of periodOverdueInvoices) {
+      const cid = inv.customerExternalId ?? '—';
+      const prev = byCustomer.get(cid) ?? { overdueAmount: 0, overdueInvoiceCount: 0 };
+      prev.overdueAmount += inv.overdueAmount;
+      prev.overdueInvoiceCount += 1;
+      byCustomer.set(cid, prev);
+    }
+
+    return Array.from(byCustomer.entries()).map(([customerExternalId, v]) => ({
+      customerExternalId,
+      overdueAmount: v.overdueAmount,
+      overdueInvoiceCount: v.overdueInvoiceCount,
+    }));
+  }, [periodOverdueInvoices]);
+
+  const overdueInvoicesCount = periodOverdueInvoices.length;
+  const unpaidInvoicesCount = periodUnpaidInvoices.length;
+
+  const leakage = useMemo(() => {
+    // Create period-aware leakage summary from unified rows.
+    const totalItems = moneyLeakageRows.length;
+    const totalEstimatedLoss = moneyLeakageRows.reduce((sum, r) => sum + (r.amountAtRisk ?? 0), 0);
+
+    const categoryLabel = (stage: string) => {
+      if (stage.startsWith('Потеря')) return 'Потерянные сделки';
+      if (stage.startsWith('Задержка: застрявшая')) return 'Замершие сделки';
+      if (stage.includes('выиграна')) return 'Выиграна, но нет счёта';
+      if (stage.includes('Счёт выставлен') && stage.includes('оплата')) return 'Счета без оплаты';
+      if (stage.startsWith('Просрочка')) return 'Просрочка оплаты';
+      if (stage.startsWith('Задержка клиента')) return 'Задержка клиентов';
+      return 'Прочее';
+    };
+
+    const catMap = new Map<string, { count: number; estimatedLoss: number }>();
+    for (const r of moneyLeakageRows) {
+      const label = categoryLabel(r.problemStage);
+      const prev = catMap.get(label) ?? { count: 0, estimatedLoss: 0 };
+      prev.count += 1;
+      prev.estimatedLoss += r.amountAtRisk ?? 0;
+      catMap.set(label, prev);
+    }
+
+    const byCategory = Array.from(catMap.entries())
+      .map(([label, v]) => ({
+        category: label,
+        label,
+        count: v.count,
+        estimatedLoss: v.estimatedLoss,
+        percentage: totalItems > 0 ? (v.count / totalItems) * 100 : 0,
+      }))
+      .sort((a, b) => b.estimatedLoss - a.estimatedLoss);
+
+    return { totalItems, totalEstimatedLoss, byCategory };
+  }, [moneyLeakageRows]);
+
+  const lostDealsInPeriod = useMemo(() => dealsInPeriod.filter((d) => d.status === 'lost'), [dealsInPeriod]);
+
+  const lostDealsAnalysis = useMemo(() => computeLostDealsAnalysis(lostDealsInPeriod, managers), [lostDealsInPeriod, managers]);
 
   const completeness = useMemo(
     () =>
@@ -301,9 +672,9 @@ export default function SalesCashPrioritiesPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
               <ControlTowerKpiCard
                 title="Застрявшие сделки"
-                value={String(analytics.salesCashPriority.stalledDeals.length)}
+                value={String(periodStalledDeals.length)}
                 subtitle="без активности"
-                status={analytics.salesCashPriority.stalledDeals.length > 0 ? 'warning' : 'success'}
+                status={periodStalledDeals.length > 0 ? 'warning' : 'success'}
                 icon={<Clock className="h-5 w-5" />}
               />
               <ControlTowerKpiCard
@@ -315,16 +686,16 @@ export default function SalesCashPrioritiesPage() {
               />
               <ControlTowerKpiCard
                 title="Просрочено"
-                value={formatKZT(analytics.overdueAmount.value)}
+                value={formatKZT(periodOverdueInvoices.reduce((s, x) => s + x.overdueAmount, 0))}
                 subtitle={`${overdueInvoicesCount} счет(ов)`}
                 status={overdueInvoicesCount > 0 ? 'danger' : 'success'}
                 icon={<AlertTriangle className="h-5 w-5" />}
               />
               <ControlTowerKpiCard
                 title="Клиенты с задержкой"
-                value={String(analytics.salesCashPriority.delayedCustomers.length)}
+                value={String(periodDelayedCustomers.length)}
                 subtitle="с проблемой оплаты"
-                status={analytics.salesCashPriority.delayedCustomers.length > 0 ? 'warning' : 'default'}
+                status={periodDelayedCustomers.length > 0 ? 'warning' : 'default'}
                 icon={<LayoutGrid className="h-5 w-5" />}
               />
               <ControlTowerKpiCard
@@ -411,6 +782,86 @@ export default function SalesCashPrioritiesPage() {
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
               {/* Left: Deals + Invoices */}
               <div className="space-y-6 xl:col-span-2">
+                {/* Unified leakage command table */}
+                <Card className="rct-card border-l-[3px] border-l-rose-400/70">
+                  <CardHeader>
+                    <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 text-rose-500" />
+                      Почему деньги не доходят до оплаты
+                    </CardTitle>
+                    <CardDescription className="text-muted-foreground">
+                      Одна таблица: где именно застряло, почему, кто отвечает и следующий шаг.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {moneyLeakageRows.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">В выбранном периоде не найдено заметных точек риска.</p>
+                    ) : (
+                      <>
+                        <div className="overflow-x-auto border rounded-lg">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="border-b bg-muted/30">
+                                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Клиент / сущность</th>
+                                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Проблема (стадия)</th>
+                                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Причина</th>
+                                <th className="text-right px-3 py-2 font-medium text-muted-foreground">Сумма в риске</th>
+                                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Ответственный</th>
+                                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Последняя активность</th>
+                                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Следующий шаг</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {moneyLeakageRows.slice(0, 15).map((r) => (
+                                <tr key={r.id} className="border-b border-border/30 hover:bg-muted/20 align-top">
+                                  <td className="px-3 py-2">
+                                    <div className="font-medium text-foreground truncate max-w-[160px]">
+                                      {r.dealExternalId ?? r.invoiceExternalId ?? r.customerExternalId ?? '—'}
+                                    </div>
+                                    {r.customerExternalId && (
+                                      <div className="text-[10px] text-muted-foreground mt-1 truncate max-w-[160px]">
+                                        клиент: {r.customerExternalId}
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <div className="font-medium text-foreground">{r.problemStage}</div>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <div className="text-muted-foreground">{r.reason}</div>
+                                  </td>
+                                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                                    <div className="font-semibold text-foreground">
+                                      {r.amountAtRisk === null ? '—' : formatKZT(r.amountAtRisk)}
+                                    </div>
+                                    <div className="mt-1">
+                                      <TrustBadge level={r.trust} />
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2 text-muted-foreground truncate max-w-[160px]">{r.owner}</td>
+                                  <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{r.lastActivity ? formatDateRu(r.lastActivity) : '—'}</td>
+                                  <td className="px-3 py-2">
+                                    <div className="text-muted-foreground">{r.recommendedNextAction}</div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {moneyLeakageRows.length > 15 && (
+                          <p className="text-xs text-muted-foreground mt-2">Показаны первые 15 из {moneyLeakageRows.length} точек риска.</p>
+                        )}
+
+                        {/* quick explanation of trust */}
+                        <p className="text-[11px] text-muted-foreground mt-3">
+                          Значки <span className="font-medium text-foreground">Точные / По неполным связям / Неполные</span> показывают, что часть сумм может быть оценкой, если в периоде нет связанных счетов/оплат.
+                        </p>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+
                 {/* ============================================= */}
                 {/* LOST DEALS ANALYSIS                             */}
                 {/* ============================================= */}
@@ -537,7 +988,7 @@ export default function SalesCashPrioritiesPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    {analytics.salesCashPriority.stalledDeals.length === 0 ? (
+                    {periodStalledDeals.length === 0 ? (
                       <p className="text-sm text-muted-foreground">Нет застрявших сделок.</p>
                     ) : (
                       (() => {
@@ -556,7 +1007,7 @@ export default function SalesCashPrioritiesPage() {
                           { label: '30+ дней', min: 31, max: Infinity },
                         ];
                         const perBucket = buckets.map((b) => ({ label: b.label, count: 0, amount: 0 }));
-                        const normalized = analytics.salesCashPriority.stalledDeals.map((d) => {
+                        const normalized = periodStalledDeals.map((d) => {
                           const ts = d.lastActivityDate ? new Date(d.lastActivityDate + 'T00:00:00').getTime() : NaN;
                           const ageDays = Number.isFinite(ts) ? Math.max(0, Math.floor((todayTs - ts) / 86_400_000)) : 0;
                           const label = bucketForDays(ageDays);
@@ -634,14 +1085,14 @@ export default function SalesCashPrioritiesPage() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     {(() => {
-                      const overdueInvoices = analytics.salesCashPriority.overdueInvoices;
-                      const unpaidInvoices = analytics.salesCashPriority.unpaidInvoices;
-                      const delayedCustomers = analytics.salesCashPriority.delayedCustomers;
+                      const overdueInvoices = periodOverdueInvoices;
+                      const unpaidInvoices = periodUnpaidInvoices;
+                      const delayedCustomers = periodDelayedCustomers;
 
                       const overdueTotal = overdueInvoices.reduce((s, x) => s + x.overdueAmount, 0);
                       const unpaidTotal = unpaidInvoices.reduce((s, x) => s + x.outstanding, 0);
                       const delayedTotal = delayedCustomers.reduce((s, x) => s + x.overdueAmount, 0);
-                      const nonOverdueUnpaid = Math.max(0, unpaidTotal - overdueTotal);
+                      const nonOverdueUnpaid = unpaidTotal; // unpaidInvoices уже исключают просрочку
 
                       const rankedOverdue = overdueInvoices
                         .slice()
@@ -704,11 +1155,11 @@ export default function SalesCashPrioritiesPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {analytics.salesCashPriority.delayedCustomers.length === 0 ? (
+                    {periodDelayedCustomers.length === 0 ? (
                       <p className="text-sm text-muted-foreground">Нет клиентов с задержкой.</p>
                     ) : (
                       (() => {
-                        const top = analytics.salesCashPriority.delayedCustomers
+                        const top = periodDelayedCustomers
                           .slice()
                           .sort((a, b) => b.overdueAmount - a.overdueAmount)
                           .slice(0, 8);
@@ -733,50 +1184,34 @@ export default function SalesCashPrioritiesPage() {
                   </CardContent>
                 </Card>
 
-                {/* Priority actions */}
+                {/* Top risks (diagnostics) */}
                 <Card className="rct-card">
                   <CardHeader className="rct-card-padding pb-2">
                     <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
-                      Приоритетные действия
+                      Топ рисков в оплате
                       <MetricHelpIcon helpKey="priority_actions" />
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {analytics.salesCashPriority.priorityActionCandidates.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">Нет кандидатов.</p>
+                    {moneyLeakageRows.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">Нет точек риска в выбранном периоде.</p>
                     ) : (
                       <div className="space-y-3">
-                        {analytics.salesCashPriority.priorityActionCandidates.slice(0, 5).map((a) => (
-                          <div key={a.id} className="rct-card-inset p-3">
+                        {moneyLeakageRows.slice(0, 5).map((r) => (
+                          <div key={r.id} className="rct-card-inset p-3">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
-                                <p className="text-sm font-semibold text-foreground truncate">
-                                  {actionTypeLabelMap[a.type] ?? a.type}
-                                </p>
-                                <div className="flex gap-2 mt-2 flex-wrap">
+                                <p className="text-sm font-semibold text-foreground truncate">{r.problemStage}</p>
+                                <div className="flex gap-2 mt-2 flex-wrap items-center">
                                   <Badge variant="outline" className="text-[10px]">
-                                    {a.area === 'cashflow' ? 'cash' : a.area === 'sales' ? 'sales' : 'revenue'}
+                                    {r.entityType}
                                   </Badge>
-                                  <Badge
-                                    variant="outline"
-                                    className={cn(
-                                      'text-[10px]',
-                                      a.priority === 'high'
-                                        ? 'text-rose-600 dark:text-rose-400 border-rose-300/60'
-                                        : a.priority === 'medium'
-                                          ? 'text-yellow-700 dark:text-yellow-400 border-yellow-300/60'
-                                          : 'text-primary border-primary/30'
-                                    )}
-                                  >
-                                    {a.priority === 'high' ? 'Высокий' : a.priority === 'medium' ? 'Средний' : 'Низкий'}
-                                  </Badge>
+                                  <TrustBadge level={r.trust} />
                                 </div>
                               </div>
                               <Bolt className="h-4 w-4 text-primary mt-0.5" />
                             </div>
-                            {a.facts[0] && (
-                              <p className="text-xs text-muted-foreground mt-2">{a.facts[0]}</p>
-                            )}
+                            <p className="text-xs text-muted-foreground mt-2">Причина: {r.reason}</p>
                           </div>
                         ))}
                       </div>

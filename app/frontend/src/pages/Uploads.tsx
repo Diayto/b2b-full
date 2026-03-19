@@ -365,7 +365,6 @@ export default function UploadsPage() {
     setResult(null);
     setAutoDetectedType(null);
     setStep('select');
-    setMappingResult(null);
     setEditableMappings([]);
     setRawRows([]);
     setSourceColumns([]);
