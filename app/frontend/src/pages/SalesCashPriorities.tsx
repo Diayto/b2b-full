@@ -712,7 +712,7 @@ export default function SalesCashPrioritiesPage() {
               <Card className="rct-card">
                 <CardHeader>
                   <CardTitle className="text-base font-semibold text-foreground">Нижняя воронка: Сделка → Оплата</CardTitle>
-                  <CardDescription>Где теряются сделки между выигрышем и поступлением денег</CardDescription>
+                  <CardDescription>Здоровье цепочки перед оплатой (см. таблицу ниже)</CardDescription>
                 </CardHeader>
                 <CardContent>
                   {lowerFunnelStageData.won > 0 && lowerFunnelStageData.invoiced < lowerFunnelStageData.won * 0.5 && (
@@ -753,7 +753,7 @@ export default function SalesCashPrioritiesPage() {
                     <AlertTriangle className="h-4 w-4 text-amber-500" />
                     Утечки в воронке
                   </CardTitle>
-                  <CardDescription>Где теряется потенциальная выручка</CardDescription>
+                  <CardDescription>Куда “протекает” выручка в периоде</CardDescription>
                 </CardHeader>
                 <CardContent>
                   {leakage.totalItems === 0 ? (
@@ -763,15 +763,34 @@ export default function SalesCashPrioritiesPage() {
                       <p className="text-xs text-muted-foreground">
                         Всего: {leakage.totalItems} точек · ~{formatKZT(leakage.totalEstimatedLoss)} потерь
                       </p>
-                      {leakage.byCategory.slice(0, 5).map((c) => (
-                        <div key={c.category} className="flex items-center justify-between gap-3 rct-card-inset p-2.5">
-                          <span className="text-xs font-medium text-foreground">{c.label}</span>
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline" className="text-[10px]">{c.count}</Badge>
-                            <span className="text-xs font-semibold text-foreground">{formatKZT(c.estimatedLoss)}</span>
+                      {(() => {
+                        const top = leakage.byCategory.slice(0, 3);
+                        const maxLoss = Math.max(1, ...top.map((x) => x.estimatedLoss));
+                        return (
+                          <div className="space-y-2">
+                            {top.map((c) => {
+                              const w = Math.round((c.estimatedLoss / maxLoss) * 100);
+                              return (
+                                <div key={c.category} className="rct-card-inset p-2.5">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <span className="text-xs font-medium text-foreground">{c.label}</span>
+                                    <div className="flex items-center gap-2">
+                                      <Badge variant="outline" className="text-[10px]">{c.count}</Badge>
+                                      <span className="text-xs font-semibold text-foreground whitespace-nowrap">{formatKZT(c.estimatedLoss)}</span>
+                                    </div>
+                                  </div>
+                                  <div className="h-2 bg-muted rounded-full overflow-hidden mt-2">
+                                    <div
+                                      className="h-full bg-amber-400/70 dark:bg-amber-500/60 rounded-full"
+                                      style={{ width: `${w}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })()}
                     </div>
                   )}
                 </CardContent>
@@ -783,14 +802,14 @@ export default function SalesCashPrioritiesPage() {
               {/* Left: Deals + Invoices */}
               <div className="space-y-6 xl:col-span-2">
                 {/* Unified leakage command table */}
-                <Card className="rct-card border-l-[3px] border-l-rose-400/70">
+                <Card className="rct-card border-l-[4px] border-l-rose-400/70">
                   <CardHeader>
-                    <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
+                    <CardTitle className="text-lg font-semibold text-foreground flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4 text-rose-500" />
                       Почему деньги не доходят до оплаты
                     </CardTitle>
                     <CardDescription className="text-muted-foreground">
-                      Одна таблица: где именно застряло, почему, кто отвечает и следующий шаг.
+                      Главная рабочая поверхность: место риска, причина, ответственный и следующий шаг.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -798,11 +817,51 @@ export default function SalesCashPrioritiesPage() {
                       <p className="text-sm text-muted-foreground">В выбранном периоде не найдено заметных точек риска.</p>
                     ) : (
                       <>
+                        {/* Compact reason breakdown (derived from unified leakage model) */}
+                        <div className="rct-card-inset p-3.5 mb-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-foreground">Почему деньги “не доходят”</p>
+                              <p className="text-xs text-muted-foreground mt-1">Распределение причин по тем же точкам риска.</p>
+                            </div>
+                            <Badge variant="outline" className="text-[10px] shrink-0">
+                              top {Math.min(6, leakage.byCategory.length)}
+                            </Badge>
+                          </div>
+
+                          <div className="mt-3 space-y-2">
+                            {(() => {
+                              const top = leakage.byCategory.slice(0, 6);
+                              const maxLoss = Math.max(1, ...top.map((x) => x.estimatedLoss));
+                              return top.map((c) => {
+                                const w = Math.round((c.estimatedLoss / maxLoss) * 100);
+                                return (
+                                  <div key={c.category} className="space-y-1">
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span className="text-xs font-medium text-foreground">{c.label}</span>
+                                      <div className="flex items-center gap-2">
+                                        <Badge variant="outline" className="text-[10px]">{c.count}</Badge>
+                                        <span className="text-xs font-semibold text-foreground whitespace-nowrap">{formatKZT(c.estimatedLoss)}</span>
+                                      </div>
+                                    </div>
+                                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                      <div
+                                        className="h-full bg-rose-400/70 dark:bg-rose-500/60 rounded-full"
+                                        style={{ width: `${w}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              });
+                            })()}
+                          </div>
+                        </div>
+
                         <div className="overflow-x-auto border rounded-lg">
                           <table className="w-full text-xs">
                             <thead>
                               <tr className="border-b bg-muted/30">
-                                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Клиент / сущность</th>
+                                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Сущность</th>
                                 <th className="text-left px-3 py-2 font-medium text-muted-foreground">Проблема (стадия)</th>
                                 <th className="text-left px-3 py-2 font-medium text-muted-foreground">Причина</th>
                                 <th className="text-right px-3 py-2 font-medium text-muted-foreground">Сумма в риске</th>
@@ -816,13 +875,15 @@ export default function SalesCashPrioritiesPage() {
                                 <tr key={r.id} className="border-b border-border/30 hover:bg-muted/20 align-top">
                                   <td className="px-3 py-2">
                                     <div className="font-medium text-foreground truncate max-w-[160px]">
-                                      {r.dealExternalId ?? r.invoiceExternalId ?? r.customerExternalId ?? '—'}
+                                      {r.entityType === 'deal'
+                                        ? `Сделка: ${r.dealExternalId ?? '—'}`
+                                        : r.entityType === 'invoice'
+                                          ? `Счёт: ${r.invoiceExternalId ?? '—'}`
+                                          : `Клиент: ${r.customerExternalId ?? '—'}`}
                                     </div>
-                                    {r.customerExternalId && (
-                                      <div className="text-[10px] text-muted-foreground mt-1 truncate max-w-[160px]">
-                                        клиент: {r.customerExternalId}
-                                      </div>
-                                    )}
+                                    <div className="text-[10px] text-muted-foreground mt-1 truncate max-w-[160px]">
+                                      клиент: {r.customerExternalId ?? '—'}
+                                    </div>
                                   </td>
                                   <td className="px-3 py-2">
                                     <div className="font-medium text-foreground">{r.problemStage}</div>
@@ -831,11 +892,11 @@ export default function SalesCashPrioritiesPage() {
                                     <div className="text-muted-foreground">{r.reason}</div>
                                   </td>
                                   <td className="px-3 py-2 text-right whitespace-nowrap">
-                                    <div className="font-semibold text-foreground">
-                                      {r.amountAtRisk === null ? '—' : formatKZT(r.amountAtRisk)}
-                                    </div>
-                                    <div className="mt-1">
-                                      <TrustBadge level={r.trust} />
+                                    <div className="flex items-center justify-end gap-2">
+                                      <div className="font-semibold text-foreground">
+                                        {r.amountAtRisk === null ? '—' : formatKZT(r.amountAtRisk)}
+                                      </div>
+                                      <TrustBadge level={r.trust} size="xs" />
                                     </div>
                                   </td>
                                   <td className="px-3 py-2 text-muted-foreground truncate max-w-[160px]">{r.owner}</td>
@@ -879,55 +940,12 @@ export default function SalesCashPrioritiesPage() {
                     {lostDealsAnalysis.total === 0 ? (
                       <p className="text-sm text-muted-foreground">Нет потерянных сделок в периоде — отлично!</p>
                     ) : (
-                      <div className="space-y-5">
-                        {/* Top reasons aggregation */}
-                        <div className="rct-card-inset p-4">
-                          <p className="text-sm font-semibold text-foreground mb-3">Причины потерь</p>
-                          <div className="space-y-2.5">
-                            {lostDealsAnalysis.reasonBreakdown.map((r) => {
-                              const maxPct = Math.max(1, ...lostDealsAnalysis.reasonBreakdown.map((x) => x.percentage));
-                              const w = Math.round((r.percentage / maxPct) * 100);
-                              return (
-                                <div key={r.reason} className="space-y-1">
-                                  <div className="flex items-center justify-between gap-3">
-                                    <span className="text-xs font-medium text-foreground">{r.label}</span>
-                                    <span className="text-xs text-muted-foreground">
-                                      {r.count} ({r.percentage.toFixed(0)}%)
-                                    </span>
-                                  </div>
-                                  <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                    <div className="h-full bg-rose-400/70 dark:bg-rose-500/60 rounded-full" style={{ width: `${w}%` }} />
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        {/* Lost by manager */}
-                        {lostDealsAnalysis.managerBreakdown.length > 0 && (
-                          <div className="rct-card-inset p-4">
-                            <p className="text-sm font-semibold text-foreground mb-3">По менеджерам</p>
-                            <div className="space-y-2">
-                              {lostDealsAnalysis.managerBreakdown.slice(0, 5).map((m) => {
-                                const max = Math.max(1, ...lostDealsAnalysis.managerBreakdown.map((x) => x.lostCount));
-                                return (
-                                  <RankedListItem
-                                    key={m.managerName}
-                                    label={m.managerName}
-                                    value={`${m.lostCount} потерь`}
-                                    progressPct={Math.round((m.lostCount / max) * 100)}
-                                    barColor="rose"
-                                  />
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-
+                      <div className="space-y-3">
                         {/* Lost deals list */}
                         <div>
-                          <p className="text-sm font-semibold text-foreground mb-3">Список потерянных сделок</p>
+                          <p className="text-sm font-semibold text-foreground mb-2">
+                            Топ потерянных сделок (lost)
+                          </p>
                           <div className="overflow-x-auto">
                             <table className="w-full text-xs">
                               <thead>
@@ -941,7 +959,7 @@ export default function SalesCashPrioritiesPage() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {lostDealsAnalysis.deals.slice(0, 15).map((d) => (
+                                {lostDealsAnalysis.deals.slice(0, 8).map((d) => (
                                   <tr key={d.dealExternalId} className="border-b border-border/30 hover:bg-muted/20">
                                     <td className="px-3 py-2 font-medium text-foreground truncate max-w-[120px]">{d.dealExternalId}</td>
                                     <td className="px-3 py-2 text-muted-foreground truncate max-w-[120px]">{d.customerExternalId}</td>
@@ -967,8 +985,8 @@ export default function SalesCashPrioritiesPage() {
                               </tbody>
                             </table>
                           </div>
-                          {lostDealsAnalysis.total > 15 && (
-                            <p className="text-xs text-muted-foreground mt-2">Показаны первые 15 из {lostDealsAnalysis.total}.</p>
+                          {lostDealsAnalysis.total > 8 && (
+                            <p className="text-xs text-muted-foreground mt-2">Показаны первые 8 из {lostDealsAnalysis.total}.</p>
                           )}
                         </div>
                       </div>
@@ -977,7 +995,7 @@ export default function SalesCashPrioritiesPage() {
                 </Card>
 
                 {/* Stalled deals */}
-                <Card className="rct-card">
+                <Card className="rct-card hidden">
                   <CardHeader>
                     <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
                       Застрявшие сделки
@@ -988,8 +1006,10 @@ export default function SalesCashPrioritiesPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    {periodStalledDeals.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">Нет застрявших сделок.</p>
+                    {true ? (
+                      <p className="text-sm text-muted-foreground">
+                        Застрявшие сделки уже учтены в таблице риска выше — смотрите “Причина” и “Следующий шаг”.
+                      </p>
                     ) : (
                       (() => {
                         const today = new Date();
@@ -1076,7 +1096,7 @@ export default function SalesCashPrioritiesPage() {
                 </Card>
 
                 {/* Invoices */}
-                <Card className="rct-card">
+                <Card className="rct-card hidden">
                   <CardHeader>
                     <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
                       Неоплаченные и просроченные счета
@@ -1147,7 +1167,7 @@ export default function SalesCashPrioritiesPage() {
               {/* Right column */}
               <div className="space-y-6">
                 {/* Delayed customers */}
-                <Card className="rct-card">
+                <Card className="rct-card hidden">
                   <CardHeader>
                     <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
                       Клиенты с задержкой
@@ -1196,9 +1216,9 @@ export default function SalesCashPrioritiesPage() {
                     {moneyLeakageRows.length === 0 ? (
                       <p className="text-sm text-muted-foreground">Нет точек риска в выбранном периоде.</p>
                     ) : (
-                      <div className="space-y-3">
-                        {moneyLeakageRows.slice(0, 5).map((r) => (
-                          <div key={r.id} className="rct-card-inset p-3">
+                      <div className="space-y-2">
+                        {moneyLeakageRows.slice(0, 3).map((r) => (
+                          <div key={r.id} className="rct-card-inset p-2.5">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <p className="text-sm font-semibold text-foreground truncate">{r.problemStage}</p>
@@ -1206,7 +1226,7 @@ export default function SalesCashPrioritiesPage() {
                                   <Badge variant="outline" className="text-[10px]">
                                     {r.entityType}
                                   </Badge>
-                                  <TrustBadge level={r.trust} />
+                                  <TrustBadge level={r.trust} size="xs" />
                                 </div>
                               </div>
                               <Bolt className="h-4 w-4 text-primary mt-0.5" />
