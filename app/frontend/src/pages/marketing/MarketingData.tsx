@@ -1,9 +1,19 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { getSession, getMarketingSpend, getUploads } from '@/lib/store';
+import {
+  getSession,
+  getMarketingSpend,
+  getUploads,
+  getChannelCampaigns,
+  getContentMetrics,
+  getLeads,
+  getDeals,
+} from '@/lib/store';
 import { formatKZT } from '@/lib/metrics';
+import { computeSystemCompleteness } from '@/lib/analytics';
 
 type SortKey = 'month' | 'amount';
 type SortDirection = 'asc' | 'desc';
@@ -62,9 +72,15 @@ export default function MarketingData() {
     return null;
   }
 
-  const marketingRows = getMarketingSpend(session.companyId);
-  const marketingUploads = getUploads(session.companyId)
-    .filter((upload) => upload.fileType === 'marketing_spend')
+  const companyId = session.companyId;
+  const marketingRows = getMarketingSpend(companyId);
+  const channelCampaigns = getChannelCampaigns(companyId);
+  const contentMetrics = getContentMetrics(companyId);
+  const leads = getLeads(companyId);
+  const deals = getDeals(companyId);
+
+  const marketingUploads = getUploads(companyId)
+    .filter((upload) => ['marketing_spend', 'channels_campaigns', 'content_metrics', 'leads', 'deals'].includes(upload.fileType))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   const filteredRows = useMemo(() => {
@@ -95,14 +111,41 @@ export default function MarketingData() {
 
   const averageSpend = marketingRows.length > 0 ? totalSpend / marketingRows.length : 0;
 
-  const hasAnyData = marketingRows.length > 0 || marketingUploads.length > 0;
+  const completeness = useMemo(
+    () =>
+      computeSystemCompleteness({
+        leads,
+        deals,
+        invoices: [],
+        payments: [],
+        marketingSpend: marketingRows,
+        channelCampaigns,
+        contentMetrics,
+      }),
+    [leads, deals, marketingRows, channelCampaigns, contentMetrics],
+  );
+
+  const hasAnyData =
+    marketingRows.length > 0 ||
+    marketingUploads.length > 0 ||
+    channelCampaigns.length > 0 ||
+    contentMetrics.length > 0 ||
+    leads.length > 0 ||
+    deals.length > 0;
+
+  const latestUpload = marketingUploads[0];
+  const uploadsByType = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const up of marketingUploads) m.set(up.fileType, (m.get(up.fileType) ?? 0) + 1);
+    return m;
+  }, [marketingUploads]);
 
   return (
     <div className="space-y-8">
       <div>
         <h2 className="text-2xl font-bold text-slate-900">Данные</h2>
         <p className="text-slate-600 mt-1">
-          Исходные маркетинговые данные, история загрузок и сырые записи
+          Центр контроля маркетинг-данных: что загружено, что отсутствует и насколько данные пригодны для аналитики.
         </p>
       </div>
 
@@ -111,13 +154,12 @@ export default function MarketingData() {
           <CardHeader>
             <CardTitle className="text-slate-900">Нет данных</CardTitle>
             <CardDescription className="text-slate-600">
-              Импортируйте файл marketing spend, чтобы появились исходные данные и история загрузок.
+              Загрузите маркетинговые файлы, чтобы включить аналитику: content_metrics, channels_campaigns, marketing_spend.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
             <p className="text-slate-500 mb-6 max-w-md">
-              Пока маркетинговые данные не загружены. Перейдите в раздел Загрузки и импортируйте файл
-              с колонками month и amount.
+              Пока нет маркетингового набора данных. Начните с content_metrics (органика), затем добавьте channels_campaigns и marketing_spend для cost-метрик.
             </p>
             <Button
               onClick={() => navigate('/uploads')}
@@ -129,39 +171,86 @@ export default function MarketingData() {
         </Card>
       ) : (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             <Card className="bg-white">
               <CardHeader className="pb-3">
-                <CardDescription className="text-slate-500">Всего записей</CardDescription>
-                <CardTitle className="text-2xl text-slate-900">{marketingRows.length}</CardTitle>
+                <CardDescription className="text-slate-500">content_metrics</CardDescription>
+                <CardTitle className="text-2xl text-slate-900">{contentMetrics.length}</CardTitle>
+                <p className="text-xs text-slate-500 mt-1">Органика / Instagram / TikTok</p>
               </CardHeader>
             </Card>
 
             <Card className="bg-white">
               <CardHeader className="pb-3">
-                <CardDescription className="text-slate-500">Общий spend</CardDescription>
-                <CardTitle className="text-2xl text-slate-900">{formatKZT(totalSpend)}</CardTitle>
+                <CardDescription className="text-slate-500">channels_campaigns</CardDescription>
+                <CardTitle className="text-2xl text-slate-900">{channelCampaigns.length}</CardTitle>
+                <p className="text-xs text-slate-500 mt-1">Связь источников и кампаний</p>
               </CardHeader>
             </Card>
 
             <Card className="bg-white">
               <CardHeader className="pb-3">
-                <CardDescription className="text-slate-500">Средний spend</CardDescription>
+                <CardDescription className="text-slate-500">marketing_spend</CardDescription>
                 <CardTitle className="text-2xl text-slate-900">
-                  {marketingRows.length > 0 ? formatKZT(averageSpend) : '—'}
+                  {marketingRows.length}
                 </CardTitle>
                 {latestMonth ? (
-                  <p className="text-xs text-slate-500 mt-1">Последний период: {latestMonth}</p>
+                  <p className="text-xs text-slate-500 mt-1">Последний месяц: {latestMonth}</p>
                 ) : null}
+              </CardHeader>
+            </Card>
+
+            <Card className="bg-white">
+              <CardHeader className="pb-3">
+                <CardDescription className="text-slate-500">Доверие к маркетинг-данным</CardDescription>
+                <CardTitle className="text-2xl text-slate-900">{completeness.overall}%</CardTitle>
+                <p className="text-xs text-slate-500 mt-1">
+                  {completeness.overall >= 80 ? 'Точные данные' : completeness.overall >= 50 ? 'Частичные данные' : 'Неполные данные'}
+                </p>
               </CardHeader>
             </Card>
           </div>
 
           <Card className="bg-white">
             <CardHeader>
+              <CardTitle className="text-slate-900">Готовность маркетинг-аналитики</CardTitle>
+              <CardDescription className="text-slate-600">
+                Быстрый ответ: достаточно ли данных для отчётов и overview.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline">
+                  Органика: {contentMetrics.length > 0 ? 'загружена' : 'отсутствует'}
+                </Badge>
+                <Badge variant="outline">
+                  Каналы: {channelCampaigns.length > 0 ? 'загружены' : 'отсутствуют'}
+                </Badge>
+                <Badge variant="outline">
+                  Расход: {marketingRows.length > 0 ? 'загружен' : 'отсутствует'}
+                </Badge>
+                <Badge variant="outline">
+                  CRM связка: {leads.length > 0 && deals.length > 0 ? 'частично есть' : 'ограничена'}
+                </Badge>
+              </div>
+
+              <p className="text-sm text-slate-600">
+                {contentMetrics.length > 0 && marketingRows.length === 0
+                  ? 'Органика доступна, но cost-метрики (ROI/CAC) будут ограничены без marketing_spend.'
+                  : contentMetrics.length === 0 && marketingRows.length > 0
+                    ? 'Расход есть, но без content_metrics отсутствует вклад публикаций и органики.'
+                    : contentMetrics.length > 0 && marketingRows.length > 0
+                      ? 'Есть и organic, и spend — отчёты/overview будут наиболее полными.'
+                      : 'Загрузите хотя бы один ключевой слой (content_metrics или marketing_spend), чтобы начать анализ.'}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-white">
+            <CardHeader>
               <CardTitle className="text-slate-900">История загрузок</CardTitle>
               <CardDescription className="text-slate-600">
-                Последние импорты файлов marketing spend
+                Последние импорты маркетинговых файлов
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -170,10 +259,26 @@ export default function MarketingData() {
                   <p className="text-slate-500">Маркетинговые загрузки пока отсутствуют</p>
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-md border border-slate-200">
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    {Array.from(uploadsByType.entries()).map(([type, count]) => (
+                      <Badge key={type} variant="secondary" className="text-xs">
+                        {type}: {count}
+                      </Badge>
+                    ))}
+                  </div>
+
+                  {latestUpload && (
+                    <p className="text-xs text-slate-500">
+                      Последняя загрузка: {latestUpload.originalFileName} · {formatDateTime(latestUpload.createdAt)}
+                    </p>
+                  )}
+
+                  <div className="overflow-x-auto rounded-md border border-slate-200">
                   <table className="w-full text-sm">
                     <thead className="bg-slate-50">
                       <tr className="text-left text-slate-600">
+                        <th className="px-4 py-3 font-medium">Тип</th>
                         <th className="px-4 py-3 font-medium">Файл</th>
                         <th className="px-4 py-3 font-medium">Статус</th>
                         <th className="px-4 py-3 font-medium">Строк</th>
@@ -185,6 +290,7 @@ export default function MarketingData() {
                     <tbody>
                       {marketingUploads.map((upload) => (
                         <tr key={upload.id} className="border-t border-slate-200">
+                          <td className="px-4 py-3 text-slate-700">{upload.fileType}</td>
                           <td className="px-4 py-3 text-slate-900 font-medium">{upload.originalFileName}</td>
                           <td className="px-4 py-3">
                             <span
@@ -202,15 +308,16 @@ export default function MarketingData() {
                     </tbody>
                   </table>
                 </div>
+                </div>
               )}
             </CardContent>
           </Card>
 
           <Card className="bg-white">
             <CardHeader>
-              <CardTitle className="text-slate-900">Сырые данные</CardTitle>
+              <CardTitle className="text-slate-900">Сырые данные spend</CardTitle>
               <CardDescription className="text-slate-600">
-                Все записи marketing spend, сохранённые после импорта
+                Базовые записи marketing_spend (поддерживающий слой для cost-метрик)
               </CardDescription>
             </CardHeader>
 
