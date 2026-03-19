@@ -957,7 +957,7 @@ export default function SalesCashPrioritiesPage() {
                                           d.lostReason === 'competitor' && 'text-amber-600 dark:text-amber-400 border-amber-300/60',
                                         )}
                                       >
-                                        {LOST_REASON_LABELS[d.lostReason as LostReason] ?? d.lostReason}
+                                        {LOST_REASON_LABELS[d.lostReason] ?? d.lostReason}
                                       </Badge>
                                     </td>
                                     <td className="px-3 py-2 text-muted-foreground truncate max-w-[100px]">{d.managerName}</td>
