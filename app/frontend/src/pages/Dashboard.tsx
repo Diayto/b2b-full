@@ -33,6 +33,7 @@ import {
   computeUnifiedFunnel,
   computeLeakageAnalysis,
   computeSystemCompleteness,
+  computeStrategicNextSteps,
   FUNNEL_STAGE_LABELS,
   explainOverdue,
   explainLeakage,
@@ -66,7 +67,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { AlertTriangle, TrendingDown } from 'lucide-react';
+import { AlertTriangle, ArrowRight, TrendingDown } from 'lucide-react';
 
 const EMPTY_CHART_URL = 'https://mgx-backend-cdn.metadl.com/generate/images/977836/2026-02-19/7965a3e5-68d6-4367-bc84-3890e3b4889b.png';
 
@@ -264,6 +265,20 @@ export default function DashboardPage() {
     [leads, deals, invoices, payments, marketingSpend, channelCampaigns, contentMetrics]
   );
 
+  const strategicNextSteps = useMemo(
+    () =>
+      computeStrategicNextSteps({
+        leads,
+        deals,
+        invoices,
+        payments,
+        marketingSpend,
+        channelCampaigns,
+        contentMetrics,
+      }),
+    [leads, deals, invoices, payments, marketingSpend, channelCampaigns, contentMetrics]
+  );
+
   const heroChartData = useMemo(() => {
     const toMonthKey = (d: string) => {
       const dt = new Date(d + 'T00:00:00');
@@ -398,31 +413,34 @@ export default function DashboardPage() {
     <AppLayout>
       <div className="chrona-page">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="rct-page-title">Контроль выручки</h1>
-            <p className="rct-body-micro mt-1">Проблемы, причины и приоритеты — на одном экране</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2">
-              <Button variant="outline" onClick={() => navigate('/marketing')}>
-                Маркетинг
-              </Button>
-              <Button variant="outline" onClick={() => navigate('/sales-cash')}>
-                Sales/Cash
-              </Button>
+        <div className="chrona-tier-1 chrona-reveal-hero">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h1 className="rct-page-title">Owner Control Tower</h1>
+              <p className="rct-body-micro mt-1">Исполнительный обзор денег, рисков и ближайших возможностей</p>
             </div>
-            <Select value={dateRange} onValueChange={(v) => setDateRange(v as typeof dateRange)}>
-              <SelectTrigger className="w-[140px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="30d">30 дней</SelectItem>
-                <SelectItem value="90d">90 дней</SelectItem>
-                <SelectItem value="180d">180 дней</SelectItem>
-                <SelectItem value="all">Всё время</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-3">
+              <div className="hidden sm:flex items-center gap-2">
+                <span className="chrona-topbar-chip">Executive View</span>
+                <Button className="chrona-interactive-control" variant="outline" onClick={() => navigate('/marketing')}>
+                  Marketing
+                </Button>
+                <Button className="chrona-interactive-control" variant="outline" onClick={() => navigate('/sales-cash')}>
+                  Sales/Cash
+                </Button>
+              </div>
+              <Select value={dateRange} onValueChange={(v) => setDateRange(v as typeof dateRange)}>
+                <SelectTrigger className="w-[140px] chrona-interactive-control">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="30d">30 дней</SelectItem>
+                  <SelectItem value="90d">90 дней</SelectItem>
+                  <SelectItem value="180d">180 дней</SelectItem>
+                  <SelectItem value="all">Всё время</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
 
@@ -443,7 +461,7 @@ export default function DashboardPage() {
         {hasAnyData && (
           <div className="rct-section-gap space-y-8">
             {completeness.overall < 100 && (
-              <div className="rct-card-inset p-3 flex flex-wrap items-center gap-3">
+              <div className="chrona-tier-3 flex flex-wrap items-center gap-3">
                 <span className="text-xs font-medium text-muted-foreground">Полнота данных:</span>
                 {completeness.areas.map((a) => (
                   <Badge
@@ -460,8 +478,42 @@ export default function DashboardPage() {
               </div>
             )}
 
+            {strategicNextSteps.length > 0 && (
+              <div className="chrona-surface border-l-[3px] border-l-violet-500/55 p-4 sm:p-5">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <h3 className="chrona-section-title text-base">Куда двигаться дальше</h3>
+                  <Badge variant="outline" className="text-[10px] shrink-0">
+                    по данным компании
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Приоритетные шаги: что добить в данных и какой раздел открыть — без дублирования маркетинговых виджетов здесь.
+                </p>
+                <ul className="space-y-3">
+                  {strategicNextSteps.map((s) => (
+                    <li key={s.id} className="chrona-muted-surface flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-foreground">{s.title}</p>
+                        {s.detail ? <p className="text-xs text-muted-foreground mt-0.5">{s.detail}</p> : null}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0 chrona-interactive-control"
+                        onClick={() => navigate(s.href)}
+                      >
+                        Открыть
+                        <ArrowRight className="h-3.5 w-3.5 ml-1" />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {/* Hero: company financial health */}
-            <section className="space-y-5">
+            <section className="space-y-5 chrona-reveal-support">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <ControlTowerKpiCard
                   title="Оплачено"
@@ -493,14 +545,15 @@ export default function DashboardPage() {
                 />
               </div>
 
-              <div className="chrona-hero">
+              <div className="chrona-tier-1 chrona-hero-spotlight">
                 <div className="flex items-start justify-between gap-3 mb-4">
                   <SectionHeader title="Финансовый тренд" description="Оплачено, ожидаемый приток и просрочка по периодам." />
                   <Badge variant="outline" className="text-xs shrink-0">
                     {heroChartData.length ? `${heroChartData[0].monthLabel} → ${heroChartData[heroChartData.length - 1].monthLabel}` : 'Нет данных'}
                   </Badge>
                 </div>
-                <div className="h-[250px]">
+                <div className="chrona-chart-frame">
+                  <div className="h-[250px]">
                   {heroChartData.length === 0 ? (
                     <div className="h-full flex items-center justify-center text-sm text-muted-foreground">Недостаточно данных для тренда</div>
                   ) : (
@@ -528,13 +581,14 @@ export default function DashboardPage() {
                       </LineChart>
                     </ResponsiveContainer>
                   )}
+                  </div>
                 </div>
               </div>
             </section>
 
             {/* Supporting: risks, opportunities, workspace handoff */}
-            <section className="grid grid-cols-1 xl:grid-cols-12 gap-5">
-              <div className="xl:col-span-7 chrona-surface">
+            <section className="grid grid-cols-1 xl:grid-cols-12 gap-5 chrona-reveal-detail">
+              <div className="xl:col-span-7 chrona-tier-2">
                 <div className="flex items-center gap-2 mb-3">
                   <AlertTriangle className="h-4 w-4 text-rose-500" />
                   <h3 className="chrona-section-title">Топ рисков компании</h3>
@@ -555,7 +609,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="mt-3 space-y-2">
                   {topOverdue.slice(0, 3).map((x) => (
-                    <div key={x.invoiceExternalId ?? `${x.customerExternalId}_${x.dueDate ?? 'x'}`} className="rct-card-inset p-2.5 flex items-center justify-between gap-3">
+                    <div key={x.invoiceExternalId ?? `${x.customerExternalId}_${x.dueDate ?? 'x'}`} className="chrona-tier-3 flex items-center justify-between gap-3">
                       <span className="text-xs text-muted-foreground truncate">{x.invoiceExternalId ?? x.customerExternalId ?? 'Счёт'}</span>
                       <span className="text-xs font-semibold text-foreground whitespace-nowrap">{formatKZT(x.overdueAmount)}</span>
                     </div>
@@ -567,7 +621,7 @@ export default function DashboardPage() {
               </div>
 
               <div className="xl:col-span-5 space-y-4">
-                <div className="chrona-surface">
+                <div className="chrona-tier-2">
                   <h3 className="chrona-section-title mb-2">Топ возможностей</h3>
                   <div className="space-y-2 text-sm text-muted-foreground">
                     <p>Ожидаемый приток: <span className="font-medium text-foreground">{moneyOrDash(analytics.expectedInflow.value)}</span></p>
@@ -576,7 +630,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                <div className="chrona-surface">
+                <div className="chrona-tier-2">
                   <h3 className="chrona-section-title mb-2">Куда идти за деталями</h3>
                   <div className="space-y-2">
                     <Button className="w-full" variant="outline" onClick={() => navigate('/marketing')}>

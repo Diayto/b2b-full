@@ -35,7 +35,7 @@ export default function CollapsibleSection({
       <CollapsibleTrigger asChild>
         <button
           className={cn(
-            'flex items-center justify-between gap-3 w-full text-left transition-colors group/trigger',
+            'chrona-collapsible-trigger flex items-center justify-between gap-3 w-full text-left transition-colors group/trigger',
             variant === 'card'
               ? 'px-5 py-3.5 hover:bg-accent/40'
               : 'py-3 hover:bg-accent/30'
@@ -66,7 +66,7 @@ export default function CollapsibleSection({
         </button>
       </CollapsibleTrigger>
 
-      <CollapsibleContent className="data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0">
+      <CollapsibleContent className="chrona-collapsible-content">
         {variant === 'card' && (
           <div className="mx-5 border-t border-border/50" />
         )}

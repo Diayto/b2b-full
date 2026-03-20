@@ -326,6 +326,41 @@ export default function MarketingToRevenueDashboard() {
   const roiUnavailableCount = channelTableData.filter((c) => c.roi === null).length;
   const hasAttributionIssue = analytics.paidRevenueBySource.unattributedPaidRevenue > 0;
 
+  const marketingDataGaps = useMemo(() => {
+    const gaps: string[] = [];
+    const { leads: funnelLeads, deals: funnelDeals } = analytics.funnelDropOff;
+
+    if (funnelLeads > 0 && deals.length === 0) {
+      gaps.push(
+        'Лиды есть, а сделок в системе нет — загрузите лист продаж (например «ПРОДАЖИ») через Uploads в умном режиме или проверьте ошибки импорта.',
+      );
+    } else if (funnelLeads > 0 && deals.length > 0 && funnelDeals === 0) {
+      gaps.push(
+        'Сделки загружены, но воронка их не видит: нет связи с лидом (одинаковый ID или телефон) или дата createdDate сделки вне выбранного периода. Перезагрузите Excel после обновления — телефоны лид↔сделка теперь совпадают в формате phone:…',
+      );
+    }
+
+    if (funnelLeads > 0 && channelCampaigns.length === 0) {
+      gaps.push(
+        'Таблица каналов пуста: не загружен справочник каналов/кампаний. Без него и без источника у лидов разрез по каналам не строится.',
+      );
+    } else if (channelCampaigns.length > 0) {
+      const leadsNoChannel = leads.filter(
+        (l) =>
+          l.createdDate &&
+          isDateInRangeInclusive(l.createdDate, analyticsRange) &&
+          !l.channelCampaignExternalId,
+      ).length;
+      if (leadsNoChannel > 0) {
+        gaps.push(
+          `У ${leadsNoChannel} лидов в периоде не указан источник (канал) — по каналам будет мало или ноль данных, даже если справочник загружен.`,
+        );
+      }
+    }
+
+    return gaps;
+  }, [analytics.funnelDropOff, analyticsRange, channelCampaigns.length, deals.length, leads]);
+
   const organicMissingHint = (() => {
     if (organicTotals.reach > 0 && organicTotals.engagement === 0) return 'Reach есть, engagement не виден в отчёте';
     if (organicTotals.engagement > 0 && organicTotals.profileVisits === 0) return 'Интерес есть, но нет данных по визитам профиля';
@@ -336,30 +371,40 @@ export default function MarketingToRevenueDashboard() {
     return null;
   })();
 
+  const socialMomentumLabel =
+    organicTotals.engagement > 0 && organicTotals.leadsGenerated > 0
+      ? 'Есть связка внимания и лидов'
+      : organicTotals.reach > 0 && organicTotals.leadsGenerated === 0
+        ? 'Охват есть, но лиды слабые'
+        : 'Нужны дополнительные данные';
+
   return (
     <div className="chrona-page">
       {/* Header */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h2 className="rct-page-title">Маркетинг → Выручка</h2>
-          <p className="rct-body-micro mt-1">От лида до оплаты: воронка, каналы и эффективность</p>
-        </div>
+      <div className="chrona-tier-1 chrona-reveal-hero">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h2 className="rct-page-title">Маркетинг → Выручка</h2>
+            <p className="rct-body-micro mt-1">Главная витрина роста: органика, каналы и денежный результат</p>
+          </div>
 
-        <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-          <Select value={dateRange} onValueChange={(v) => setDateRange(v as typeof dateRange)}>
-            <SelectTrigger className="w-[170px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="30d">30 дней</SelectItem>
-              <SelectItem value="90d">90 дней</SelectItem>
-              <SelectItem value="180d">180 дней</SelectItem>
-              <SelectItem value="all">Всё время</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button variant="outline" onClick={() => navigate('/marketing/data')}>Данные</Button>
-          <Button variant="outline" onClick={() => navigate('/sales-cash')}>Sales/Cash</Button>
-          <Button onClick={() => navigate('/uploads')}>Загрузки</Button>
+          <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+            <Select value={dateRange} onValueChange={(v) => setDateRange(v as typeof dateRange)}>
+              <SelectTrigger className="w-[170px] chrona-interactive-control">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="30d">30 дней</SelectItem>
+                <SelectItem value="90d">90 дней</SelectItem>
+                <SelectItem value="180d">180 дней</SelectItem>
+                <SelectItem value="all">Всё время</SelectItem>
+              </SelectContent>
+            </Select>
+            <span className="chrona-topbar-chip">Social-first</span>
+            <Button className="chrona-interactive-control" variant="outline" onClick={() => navigate('/marketing/data')}>Данные</Button>
+            <Button className="chrona-interactive-control" variant="outline" onClick={() => navigate('/sales-cash')}>Sales/Cash</Button>
+            <Button className="chrona-interactive-control" onClick={() => navigate('/uploads')}>Загрузки</Button>
+          </div>
         </div>
       </div>
 
@@ -377,11 +422,68 @@ export default function MarketingToRevenueDashboard() {
 
       {hasCoreData && (
         <>
+          {/* Showcase rail: KPI + live signals */}
+          <section className="grid grid-cols-1 xl:grid-cols-12 gap-5 chrona-reveal-support">
+            <div className="xl:col-span-8 chrona-tier-2">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <h3 className="chrona-section-title">Ключевые сигналы маркетинга</h3>
+                <Badge variant="outline" className="text-xs">быстрый срез</Badge>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <ControlTowerKpiCard
+                  title="CPL"
+                  value={analytics.cpl.value > 0 ? moneyOrDash(analytics.cpl.value) : '—'}
+                  subtitle={!hasCostData ? 'Органика / без прямых затрат' : calculationBadge(analytics.cpl.calculationMode) ?? 'стоимость лида'}
+                  status={!hasCostData ? 'default' : analytics.cpl.calculationMode === 'fallback' || analytics.cpl.value > 20000 ? 'warning' : 'success'}
+                />
+                <ControlTowerKpiCard
+                  title="CAC"
+                  value={analytics.cac.value > 0 ? moneyOrDash(analytics.cac.value) : '—'}
+                  subtitle={!hasCostData ? 'Органика / без прямых затрат' : calculationBadge(analytics.cac.calculationMode) ?? 'стоимость клиента'}
+                  status={!hasCostData ? 'default' : analytics.cac.calculationMode === 'fallback' || analytics.cac.value > 400000 ? 'warning' : 'success'}
+                />
+                <ControlTowerKpiCard
+                  title="Цена won-сделки"
+                  value={analytics.costPerWonDeal.value > 0 ? moneyOrDash(analytics.costPerWonDeal.value) : '—'}
+                  subtitle={!hasCostData ? 'Органика / без прямых затрат' : calculationBadge(analytics.costPerWonDeal.calculationMode) ?? 'маркетинг / won deals'}
+                  status={!hasCostData ? 'default' : analytics.costPerWonDeal.calculationMode === 'fallback' || analytics.costPerWonDeal.value > 900000 ? 'warning' : 'success'}
+                />
+                <ControlTowerKpiCard
+                  title="Главный провал"
+                  value={bottleneck.label}
+                  subtitle={`провал ${percentFromRatio(bottleneck.v)}`}
+                  status="danger"
+                />
+              </div>
+            </div>
+            <div className="xl:col-span-4 chrona-tier-2">
+              <h3 className="chrona-section-title">Live Intelligence</h3>
+              <div className="mt-3 space-y-2">
+                <div className="chrona-tier-3">
+                  <p className="text-xs text-muted-foreground">Органика</p>
+                  <p className="text-sm font-medium text-foreground mt-1">{socialMomentumLabel}</p>
+                </div>
+                <div className="chrona-tier-3">
+                  <p className="text-xs text-muted-foreground">ROI</p>
+                  <p className="text-sm font-medium text-foreground mt-1">
+                    {!hasCostData ? 'Нет данных по расходам' : roiUnavailableCount > 0 ? 'Частично доступен' : 'Доступен'}
+                  </p>
+                </div>
+                <div className="chrona-tier-3">
+                  <p className="text-xs text-muted-foreground">Атрибуция</p>
+                  <p className="text-sm font-medium text-foreground mt-1">
+                    {hasAttributionIssue ? `Есть неразмечено: ${moneyOrDash(analytics.paidRevenueBySource.unattributedPaidRevenue)}` : 'Цепочка размечена'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+
 
           {/* ============================================= */}
           {/* ORGANIC FUNNEL (manual content upload)      */}
           {/* ============================================= */}
-          <section className="space-y-4">
+          <section className="space-y-4 chrona-reveal-support">
             <div className="flex items-center gap-2">
               <h3 className="text-base font-bold text-foreground">Органическая воронка (Instagram / TikTok / соцсети)</h3>
               <Badge variant="outline" className="text-xs">
@@ -389,7 +491,7 @@ export default function MarketingToRevenueDashboard() {
               </Badge>
             </div>
 
-            <div className="chrona-muted-surface border-dashed border">
+            <div className="chrona-tier-3 border-dashed">
               <p className="text-sm text-muted-foreground">
                 Сейчас Meta Graph API не подключен. Для Instagram / TikTok / соцсетей используйте <strong>ручной импорт</strong> файла{' '}
                 <strong>контент-метрик</strong> (охват, вовлечение, сообщения, лиды, сделки, оплаты). Это текущий поддерживаемый поток для органики.
@@ -399,8 +501,8 @@ export default function MarketingToRevenueDashboard() {
             {!hasOrganicInRange ? (
               <p className="text-sm text-muted-foreground">В выбранном периоде нет данных по контенту/органике. Загрузите отчёт — и появится органическая воронка.</p>
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                <div className="chrona-hero">
+              <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
+                <div className="xl:col-span-8 chrona-tier-1 chrona-hero-spotlight">
                   <SectionHeader title="Reach → Engagement → Profile Visits → Messages → Leads → Deals → Paid" size="sm" />
                   <div className="mt-4 space-y-4">
                     {(() => {
@@ -485,7 +587,31 @@ export default function MarketingToRevenueDashboard() {
                   </div>
                 </div>
 
-                <div className="chrona-surface">
+                <div className="xl:col-span-4 space-y-4">
+                  <div className="chrona-tier-2">
+                    <SectionHeader title="Social Pulse" size="sm" description="Текущий статус органики и путь к деньгам" />
+                    <div className="mt-3 space-y-2">
+                      <div className="chrona-tier-3">
+                        <p className="text-xs text-muted-foreground">Reach → Leads</p>
+                        <p className="text-sm font-medium text-foreground mt-1">
+                          {organicTotals.reach > 0 ? `${percentFromRatio(organicTotals.leadsGenerated / Math.max(organicTotals.reach, 1))}` : '—'}
+                        </p>
+                      </div>
+                      <div className="chrona-tier-3">
+                        <p className="text-xs text-muted-foreground">Leads → Paid</p>
+                        <p className="text-sm font-medium text-foreground mt-1">
+                          {organicTotals.leadsGenerated > 0 ? percentFromRatio(organicTotals.paidConversions / organicTotals.leadsGenerated) : '—'}
+                        </p>
+                      </div>
+                      {organicMissingHint ? (
+                        <p className="text-xs text-amber-600 dark:text-amber-400">{organicMissingHint}</p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">Критичных разрывов в органической цепочке не видно.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="chrona-tier-2">
                   <SectionHeader title="Частичные данные (без подстановок)" size="sm" description="Показываем что есть в импортированном отчёте." />
                   <div className="mt-4 space-y-3">
                     <div className="flex items-center justify-between gap-3">
@@ -517,71 +643,27 @@ export default function MarketingToRevenueDashboard() {
                       Конверсии считаются только по данным, которые реально загружены. Если поле отсутствует или нулевое — мы не подставляем значения.
                     </p>
                   </div>
+                  </div>
                 </div>
               </div>
             )}
           </section>
 
-          {/* KPI row */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <ControlTowerKpiCard
-              title="CPL"
-              value={analytics.cpl.value > 0 ? moneyOrDash(analytics.cpl.value) : '—'}
-              subtitle={
-                !hasCostData
-                  ? 'Органика / без прямых затрат'
-                  : calculationBadge(analytics.cpl.calculationMode) ?? 'стоимость лида'
-              }
-              status={!hasCostData ? 'default' : analytics.cpl.calculationMode === 'fallback' || analytics.cpl.value > 20000 ? 'warning' : 'success'}
-              detail={{
-                what: 'Стоимость привлечения одного лида',
-                why: 'Чем ниже CPL при сохранении качества — тем дешевле вход в воронку.',
-              }}
-            />
-            <ControlTowerKpiCard
-              title="CAC"
-              value={analytics.cac.value > 0 ? moneyOrDash(analytics.cac.value) : '—'}
-              subtitle={
-                !hasCostData
-                  ? 'Органика / без прямых затрат'
-                  : calculationBadge(analytics.cac.calculationMode) ?? 'стоимость клиента'
-              }
-              status={!hasCostData ? 'default' : analytics.cac.calculationMode === 'fallback' || analytics.cac.value > 400000 ? 'warning' : 'success'}
-              detail={{
-                what: 'Сколько стоит привлечение одного нового клиента',
-                why: 'Главный рычаг для маркетингового бюджета.',
-              }}
-            />
-            <ControlTowerKpiCard
-              title="Цена won-сделки"
-              value={analytics.costPerWonDeal.value > 0 ? moneyOrDash(analytics.costPerWonDeal.value) : '—'}
-              subtitle={
-                !hasCostData
-                  ? 'Органика / без прямых затрат'
-                  : calculationBadge(analytics.costPerWonDeal.calculationMode) ?? 'маркетинг / won deals'
-              }
-              status={!hasCostData ? 'default' : analytics.costPerWonDeal.calculationMode === 'fallback' || analytics.costPerWonDeal.value > 900000 ? 'warning' : 'success'}
-              detail={{
-                what: 'Маркетинговые расходы на одну выигранную сделку',
-                why: 'Связывает маркетинг с реальными продажами.',
-              }}
-            />
-            <ControlTowerKpiCard
-              title="Главный провал"
-              value={bottleneck.label}
-              subtitle={`провал ${percentFromRatio(bottleneck.v)}`}
-              status="danger"
-              detail={{
-                what: `Больше всего теряется на шаге: ${bottleneck.label}`,
-                why: 'Устранение bottleneck даёт самый быстрый рост конверсии в деньги.',
-              }}
-            />
-          </div>
-
           {/* ============================================= */}
           {/* LAYER A: ORGANIC / SOCIAL FUNNEL              */}
           {/* ============================================= */}
-          <section className="space-y-4">
+          <section className="space-y-4 chrona-reveal-detail">
+            {marketingDataGaps.length > 0 && (
+              <div className="chrona-muted-surface border-l-[3px] border-l-violet-500/60 p-4 space-y-2">
+                <p className="text-sm font-semibold text-foreground">Почему часть экрана пустая</p>
+                <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-1.5">
+                  {marketingDataGaps.map((g, i) => (
+                    <li key={i}>{g}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <div className="flex items-center gap-2">
               <h3 className="text-base font-bold text-foreground">Воронка: от лида до оплаты</h3>
               <Badge variant="outline" className="text-xs">
@@ -619,7 +701,7 @@ export default function MarketingToRevenueDashboard() {
           {/* ============================================= */}
           {/* LAYER B: CHANNEL PERFORMANCE TABLE            */}
           {/* ============================================= */}
-          <section className="space-y-4">
+          <section className="space-y-4 chrona-reveal-detail">
             <div className="flex items-center gap-2">
               <h3 className="text-base font-bold text-foreground">Эффективность каналов</h3>
               <Badge variant="outline" className="text-xs">{channelTableData.length} каналов</Badge>
@@ -627,10 +709,10 @@ export default function MarketingToRevenueDashboard() {
 
             {channelTableData.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                Для каналов в выбранном периоде недостаточно связей до оплаченных сделок. Органика и публикации — сверху.
+                Нет строк каналов: обычно не загружен справочник «Каналы / кампании» или у лидов не заполнен источник. Органика по контенту — в блоке выше; оплаты без связи с каналом сюда не попадут.
               </p>
             ) : (
-              <div className="chrona-surface overflow-hidden">
+              <div className="chrona-tier-2 overflow-hidden">
                 <div className="chrona-table">
                   <table>
                     <thead>
@@ -720,28 +802,28 @@ export default function MarketingToRevenueDashboard() {
 
             {/* Content analytics (when content metrics exist in the system) */}
             {!hasAnyContentMetrics && (
-              <div className="chrona-muted-surface mb-5 border-dashed border">
+              <div className="chrona-tier-3 mb-5 border-dashed">
                 <p className="text-sm text-muted-foreground">
                   <strong>Нет данных по контенту.</strong> Загрузите файл с контент-метриками в разделе «Загрузки», и появится аналитика публикаций и вовлечения.
                 </p>
               </div>
             )}
             {hasAnyContentMetrics && !hasOrganicInRange && (
-              <div className="chrona-muted-surface mb-5 border-dashed border">
+              <div className="chrona-tier-3 mb-5 border-dashed">
                 <p className="text-sm text-muted-foreground">
                   В выбранном периоде нет контент-данных. Загрузите отчёт за нужные даты — и появится органическая воронка и контент-анализ.
                 </p>
               </div>
             )}
             {hasOrganicInRange && (
-              <div className="chrona-surface mb-5">
+              <div className="chrona-tier-2 mb-5">
                 <SectionHeader title="Контент / органика" size="sm" description="Какие посты дают лиды, а какие их почти не приносят" />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                   <div>
                     <p className="text-xs font-medium text-muted-foreground mb-2">Что работает (с лид-эффектом)</p>
                     <div className="space-y-2">
                       {contentPerformance.topPerforming.slice(0, 3).map((c) => (
-                        <div key={c.contentId} className="chrona-muted-surface flex justify-between items-start gap-3">
+                        <div key={c.contentId} className="chrona-tier-3 flex justify-between items-start gap-3">
                           <div className="min-w-0">
                             <p className="text-sm font-semibold text-foreground whitespace-normal break-words">
                               {c.contentTitle || c.contentId}
@@ -777,7 +859,7 @@ export default function MarketingToRevenueDashboard() {
                     <p className="text-xs font-medium text-muted-foreground mb-2">Что не работает (почти без лидов)</p>
                     <div className="space-y-2">
                       {contentPerformance.worstPerforming.slice(0, 3).map((c) => (
-                        <div key={c.contentId} className="chrona-muted-surface flex justify-between items-start gap-3">
+                        <div key={c.contentId} className="chrona-tier-3 flex justify-between items-start gap-3">
                           <div className="min-w-0">
                             <p className="text-sm font-semibold text-foreground whitespace-normal break-words">
                               {c.contentTitle || c.contentId}
@@ -825,7 +907,7 @@ export default function MarketingToRevenueDashboard() {
               </div>
             )}
 
-            <div className="chrona-surface mb-5">
+            <div className="chrona-tier-2 mb-5">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4 text-rose-500" />
@@ -877,7 +959,7 @@ export default function MarketingToRevenueDashboard() {
             >
               <div className="space-y-3">
                 {channelTableData.slice(0, 8).map((ch) => (
-                  <div key={ch.id} className="chrona-muted-surface">
+                  <div key={ch.id} className="chrona-tier-3">
                     <div className="flex items-start justify-between gap-3 mb-2">
                       <p className="text-sm font-medium text-foreground truncate">{ch.name}</p>
                       <div className="flex gap-2 shrink-0">

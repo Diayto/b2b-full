@@ -30,6 +30,7 @@ import {
   calculateRevenueControlTowerAnalytics,
   buildRevenueControlTowerModel,
   computeLostDealsAnalysis,
+  computeLinkageDiagnostics,
   computeSystemCompleteness,
   LOST_REASON_LABELS,
   STALLED_REASON_LABELS,
@@ -618,6 +619,17 @@ export default function SalesCashPrioritiesPage() {
     completeness.areas.some((a) => a.area === 'payment_linkage' && a.score < 80) ||
     completeness.areas.some((a) => a.area === 'sales_funnel' && a.score < 80);
 
+  const linkageDiagnostics = useMemo(
+    () =>
+      computeLinkageDiagnostics({
+        leads,
+        deals,
+        invoices,
+        payments,
+      }),
+    [leads, deals, invoices, payments],
+  );
+
   const handleSeedDemo = () => {
     if (!companyId) return;
     seedDemoData(companyId);
@@ -630,29 +642,32 @@ export default function SalesCashPrioritiesPage() {
     <AppLayout>
       <div className="chrona-page">
         {/* Header */}
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="min-w-0">
-            <h1 className="rct-page-title">Где застряли деньги</h1>
-            <p className="rct-body-micro text-muted-foreground mt-1">
-              Где выручка "застревает" и какие действия нужны в первую очередь.
-            </p>
-          </div>
+        <div className="chrona-tier-1 chrona-reveal-hero">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="min-w-0">
+              <h1 className="rct-page-title">Money Leakage Workspace</h1>
+              <p className="rct-body-micro text-muted-foreground mt-1">
+                Где выручка застревает и какие действия вернут деньги быстрее.
+              </p>
+            </div>
 
-          <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-            <Select value={dateRange} onValueChange={(v) => setDateRange(v as typeof dateRange)}>
-              <SelectTrigger className="w-[170px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="30d">30 дней</SelectItem>
-                <SelectItem value="90d">90 дней</SelectItem>
-                <SelectItem value="180d">180 дней</SelectItem>
-                <SelectItem value="all">Всё время</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+              <span className="chrona-topbar-chip">Execution Focus</span>
+              <Select value={dateRange} onValueChange={(v) => setDateRange(v as typeof dateRange)}>
+                <SelectTrigger className="w-[170px] chrona-interactive-control">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="30d">30 дней</SelectItem>
+                  <SelectItem value="90d">90 дней</SelectItem>
+                  <SelectItem value="180d">180 дней</SelectItem>
+                  <SelectItem value="all">Всё время</SelectItem>
+                </SelectContent>
+              </Select>
 
-            <Button variant="outline" onClick={() => navigate('/uploads')}>Загрузки</Button>
-            <Button variant="outline" onClick={() => navigate('/marketing')}>Маркетинг</Button>
+              <Button className="chrona-interactive-control" variant="outline" onClick={() => navigate('/uploads')}>Загрузки</Button>
+              <Button className="chrona-interactive-control" variant="outline" onClick={() => navigate('/marketing')}>Marketing</Button>
+            </div>
           </div>
         </div>
 
@@ -707,7 +722,7 @@ export default function SalesCashPrioritiesPage() {
             </div>
 
             {/* Lower Funnel + Leakage */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 chrona-reveal-support">
               <div className="chrona-surface">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -798,12 +813,12 @@ export default function SalesCashPrioritiesPage() {
               </div>
             </div>
 
-            {/* Main grid */}
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-              {/* Left: Deals + Invoices */}
-              <div className="space-y-5 xl:col-span-2">
+            {/* Main stack */}
+            <div className="space-y-5 chrona-reveal-detail">
+              {/* Primary wide workspace */}
+              <div className="space-y-5">
                 {/* Unified leakage command table */}
-                <div className="chrona-hero border-l-[4px] border-l-rose-400/70">
+                <div className="chrona-hero chrona-hero-spotlight border-l-[4px] border-l-rose-400/70">
                   <div className="flex items-start justify-between gap-3">
                     <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4 text-rose-500" />
@@ -862,40 +877,40 @@ export default function SalesCashPrioritiesPage() {
                         </div>
 
                         <div className="chrona-table">
-                          <table className="text-xs">
+                          <table className="w-full table-fixed text-[11px] leading-4">
                             <thead>
                               <tr>
-                                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Сущность</th>
-                                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Проблема (стадия)</th>
-                                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Причина</th>
-                                <th className="text-right px-3 py-2 font-medium text-muted-foreground">Сумма в риске</th>
-                                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Ответственный</th>
-                                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Последняя активность</th>
-                                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Следующий шаг</th>
+                                <th className="w-[16%] text-left px-2 py-2 font-medium text-muted-foreground">Сущность</th>
+                                <th className="w-[17%] text-left px-2 py-2 font-medium text-muted-foreground">Проблема (стадия)</th>
+                                <th className="w-[16%] text-left px-2 py-2 font-medium text-muted-foreground">Причина</th>
+                                <th className="w-[12%] text-right px-2 py-2 font-medium text-muted-foreground">Сумма в риске</th>
+                                <th className="w-[11%] text-left px-2 py-2 font-medium text-muted-foreground">Ответственный</th>
+                                <th className="w-[10%] text-left px-2 py-2 font-medium text-muted-foreground">Активность</th>
+                                <th className="w-[18%] text-left px-2 py-2 font-medium text-muted-foreground">Следующий шаг</th>
                               </tr>
                             </thead>
                             <tbody>
                               {moneyLeakageRows.slice(0, 15).map((r) => (
                                 <tr key={r.id} className="align-top">
-                                  <td className="px-3 py-2">
-                                    <div className="font-medium text-foreground max-w-[160px] whitespace-normal break-words">
+                                  <td className="px-2 py-2">
+                                    <div className="font-medium text-foreground whitespace-normal break-words">
                                       {r.entityType === 'deal'
                                         ? `Сделка: ${r.dealExternalId ?? '—'}`
                                         : r.entityType === 'invoice'
                                           ? `Счёт: ${r.invoiceExternalId ?? '—'}`
                                           : `Клиент: ${r.customerExternalId ?? '—'}`}
                                     </div>
-                                    <div className="text-[10px] text-muted-foreground mt-1 max-w-[160px] whitespace-normal break-words">
+                                    <div className="text-[10px] text-muted-foreground mt-1 whitespace-normal break-words">
                                       клиент: {r.customerExternalId ?? '—'}
                                     </div>
                                   </td>
-                                  <td className="px-3 py-2">
+                                  <td className="px-2 py-2">
                                     <div className="font-medium text-foreground whitespace-normal break-words">{r.problemStage}</div>
                                   </td>
-                                  <td className="px-3 py-2">
+                                  <td className="px-2 py-2">
                                     <div className="text-muted-foreground whitespace-normal break-words">{r.reason}</div>
                                   </td>
-                                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                                  <td className="px-2 py-2 text-right">
                                     <div className="flex items-center justify-end gap-2">
                                       <div className="font-semibold text-foreground">
                                         {r.amountAtRisk === null ? '—' : formatKZT(r.amountAtRisk)}
@@ -903,9 +918,9 @@ export default function SalesCashPrioritiesPage() {
                                       <TrustBadge level={r.trust} size="xs" />
                                     </div>
                                   </td>
-                                  <td className="px-3 py-2 text-muted-foreground max-w-[160px] whitespace-normal break-words">{r.owner}</td>
-                                  <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{r.lastActivity ? formatDateRu(r.lastActivity) : '—'}</td>
-                                  <td className="px-3 py-2">
+                                  <td className="px-2 py-2 text-muted-foreground whitespace-normal break-words">{r.owner}</td>
+                                  <td className="px-2 py-2 text-muted-foreground whitespace-normal break-words">{r.lastActivity ? formatDateRu(r.lastActivity) : '—'}</td>
+                                  <td className="px-2 py-2">
                                     <div className="text-muted-foreground whitespace-normal break-words">{r.recommendedNextAction}</div>
                                   </td>
                                 </tr>
@@ -951,26 +966,26 @@ export default function SalesCashPrioritiesPage() {
                             Топ потерянных сделок (lost)
                           </p>
                           <div className="chrona-table">
-                            <table className="text-xs">
+                            <table className="w-full table-fixed text-[11px]">
                               <thead>
                                 <tr>
-                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Сделка</th>
-                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Клиент</th>
-                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Стадия</th>
-                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Причина</th>
-                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Менеджер</th>
-                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Дата</th>
+                                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Сделка</th>
+                                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Клиент</th>
+                                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Стадия</th>
+                                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Причина</th>
+                                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Менеджер</th>
+                                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Дата</th>
                                 </tr>
                               </thead>
                               <tbody>
                                 {lostDealsAnalysis.deals.slice(0, 8).map((d) => (
                                   <tr key={d.dealExternalId}>
-                                    <td className="px-3 py-2 font-medium text-foreground truncate max-w-[120px]">{d.dealExternalId}</td>
-                                    <td className="px-3 py-2 text-muted-foreground truncate max-w-[120px]">{d.customerExternalId}</td>
-                                    <td className="px-3 py-2">
+                                    <td className="px-2 py-2 font-medium text-foreground whitespace-normal break-words">{d.dealExternalId}</td>
+                                    <td className="px-2 py-2 text-muted-foreground whitespace-normal break-words">{d.customerExternalId}</td>
+                                    <td className="px-2 py-2">
                                       <Badge variant="outline" className="text-[10px]">{d.lostStage}</Badge>
                                     </td>
-                                    <td className="px-3 py-2">
+                                    <td className="px-2 py-2">
                                       <Badge
                                         variant="outline"
                                         className={cn(
@@ -982,8 +997,8 @@ export default function SalesCashPrioritiesPage() {
                                         {LOST_REASON_LABELS[d.lostReason] ?? d.lostReason}
                                       </Badge>
                                     </td>
-                                    <td className="px-3 py-2 text-muted-foreground truncate max-w-[100px]">{d.managerName}</td>
-                                    <td className="px-3 py-2 text-muted-foreground">{formatDateRu(d.lostDate)}</td>
+                                    <td className="px-2 py-2 text-muted-foreground whitespace-normal break-words">{d.managerName}</td>
+                                    <td className="px-2 py-2 text-muted-foreground whitespace-normal break-words">{formatDateRu(d.lostDate)}</td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -1001,52 +1016,94 @@ export default function SalesCashPrioritiesPage() {
                 {/* (уплотнение) stalled / invoices / delayed вынесены в единую таблицу риска */}
               </div>
 
-              {/* Right column */}
-              <div className="space-y-5">
-                {/* Top risks (diagnostics) */}
-                <div className="chrona-surface">
-                  <div className="flex items-center gap-2">
-                    <h3 className="chrona-section-title flex items-center gap-2">
-                      Топ рисков в оплате
-                      <MetricHelpIcon helpKey="priority_actions" />
+              {/* Диагностика + риски — один ряд (по половине); рекомендации — на всю ширину ниже */}
+              <section
+                className="rounded-xl border border-border/60 bg-muted/15 dark:bg-muted/10 p-4 sm:p-5 space-y-5"
+                aria-labelledby="sales-cash-diagnostics-heading"
+              >
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <h3 id="sales-cash-diagnostics-heading" className="chrona-section-title text-base">
+                      Диагностика и следующие шаги
                     </h3>
-                  </div>
-                  <div className="mt-3">
-                    {moneyLeakageRows.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">Нет точек риска в выбранном периоде.</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {moneyLeakageRows.slice(0, 3).map((r) => (
-                          <div key={r.id} className="chrona-muted-surface">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="text-sm font-semibold text-foreground truncate">{r.problemStage}</p>
-                                <div className="flex gap-2 mt-2 flex-wrap items-center">
-                                  <Badge variant="outline" className="text-[10px]">
-                                    {r.entityType}
-                                  </Badge>
-                                  <TrustBadge level={r.trust} size="xs" />
-                                </div>
-                              </div>
-                              <Bolt className="h-4 w-4 text-primary mt-0.5" />
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-2">Причина: {r.reason}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    <p className="text-xs text-muted-foreground mt-1 max-w-3xl">
+                      Сверху — короткая диагностика; рекомендации развёрнуты на всю ширину, чтобы текст было удобно читать.
+                    </p>
                   </div>
                 </div>
 
-                {/* Recommendations at bottom */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-5 md:items-start">
+                  <div className="chrona-surface border-l-[3px] border-l-amber-400/70 p-4 min-w-0">
+                    <div className="flex items-center justify-between gap-3">
+                      <h4 className="text-sm font-semibold text-foreground">Диагностика связей</h4>
+                      <Badge variant="outline" className="text-xs shrink-0">
+                        {linkageDiagnostics.linkageCoveragePercent}% покрытие
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Цепочка: оплата → счёт → сделка → лид.
+                    </p>
+
+                    <div className="mt-3 space-y-2">
+                      {linkageDiagnostics.topBreakReasons.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Критичных разрывов связей не найдено.</p>
+                      ) : (
+                        linkageDiagnostics.topBreakReasons.map((r) => (
+                          <div key={r.label} className="chrona-muted-surface flex items-center justify-between gap-3">
+                            <span className="text-sm text-muted-foreground">{r.label}</span>
+                            <Badge variant="outline" className="text-xs">
+                              {r.count}
+                            </Badge>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="chrona-surface p-4 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                        Топ рисков в оплате
+                        <MetricHelpIcon helpKey="priority_actions" />
+                      </h4>
+                    </div>
+                    <div className="mt-3">
+                      {moneyLeakageRows.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Нет точек риска в выбранном периоде.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {moneyLeakageRows.slice(0, 3).map((r) => (
+                            <div key={r.id} className="chrona-muted-surface">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold text-foreground break-words">{r.problemStage}</p>
+                                  <div className="flex gap-2 mt-2 flex-wrap items-center">
+                                    <Badge variant="outline" className="text-[10px]">
+                                      {r.entityType}
+                                    </Badge>
+                                    <TrustBadge level={r.trust} size="xs" />
+                                  </div>
+                                </div>
+                                <Bolt className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                              </div>
+                              <p className="text-xs text-muted-foreground mt-2">Причина: {r.reason}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
                 <RecommendationsCard
                   title="Рекомендации"
                   description="Что делать дальше."
                   items={recommendationItems}
                   helpKey="priority_actions"
-                  compact
+                  compact={false}
+                  className="w-full border-border/80 shadow-none bg-background/90"
                 />
-              </div>
+              </section>
             </div>
           </>
         )}

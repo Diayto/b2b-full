@@ -12,6 +12,7 @@ import type {
   ParsedChannelCampaignRow, ParsedManagerRow,
   ParsedContentMetricRow,
 } from './types';
+import { normalizeCustomerExternalId, normalizeLeadExternalId, normalizeReferenceId } from './idNormalization';
 
 export type ParsedRow =
   | ParsedTransactionRow
@@ -69,13 +70,26 @@ async function fileToRows(file: File): Promise<Record<string, unknown>[]> {
 function isValidDate(val: unknown): boolean {
   if (!val) return false;
   if (val instanceof Date) return !isNaN(val.getTime());
+  if (typeof val === 'number') return val > 20000 && val < 90000;
   const str = String(val);
   return /^\d{4}-\d{2}-\d{2}$/.test(str) && !isNaN(Date.parse(str));
+}
+
+function excelSerialToDateString(serial: number): string | null {
+  if (!Number.isFinite(serial)) return null;
+  const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+  const dt = new Date(excelEpoch.getTime() + serial * 24 * 60 * 60 * 1000);
+  if (isNaN(dt.getTime())) return null;
+  return dt.toISOString().split('T')[0];
 }
 
 function toDateString(val: unknown): string {
   if (val instanceof Date) {
     return val.toISOString().split('T')[0];
+  }
+  if (typeof val === 'number') {
+    const converted = excelSerialToDateString(val);
+    if (converted) return converted;
   }
   return String(val);
 }
@@ -92,6 +106,16 @@ function isPositiveNumber(val: unknown): boolean {
 
 function normalizeKey(key: string): string {
   return key.toLowerCase().replace(/[\s_\-().]/g, '');
+}
+
+function getRowValueByNormalizedKey(row: Record<string, unknown>, candidates: string[]): unknown {
+  const normalizedCandidates = candidates.map((c) => normalizeKey(c));
+  for (const [key, value] of Object.entries(row)) {
+    if (normalizedCandidates.includes(normalizeKey(key))) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
 const FIELD_ALIASES: Record<FileType, Record<string, string[]>> = {
@@ -112,13 +136,33 @@ const FIELD_ALIASES: Record<FileType, Record<string, string[]>> = {
   },
   invoices: {
     invoiceDate: ['invoicedate', 'date', 'дата', 'датасчета'],
-    customerExternalId: ['customerexternalid', 'customerid', 'clientid', 'idклиента'],
-    amount: ['amount', 'sum', 'value', 'сумма'],
-    status: ['status', 'state', 'статус'],
-    paidDate: ['paiddate', 'paymentdate', 'датаоплаты'],
-    dueDate: ['duedate', 'duedatepayment', 'paymentduedate', 'dateofduedate', 'дедлайн', 'дедлайни'],
-    dealExternalId: ['dealexternalid', 'dealid', 'idсделки', 'iddeal'],
-    invoiceExternalId: ['invoiceexternalid', 'invoiceid', 'invoicenumber', 'number', 'idсчета', 'idscheta'],
+    customerExternalId: ['customerexternalid', 'customerid', 'clientid', 'idклиента', 'номертелефона', 'phone', 'телефон'],
+    amount: ['amount', 'sum', 'value', 'сумма', 'стоимость', 'суммаоплаты', 'общаястоимость'],
+    status: ['status', 'state', 'статус', 'остаток'],
+    paidDate: [
+      'paiddate',
+      'paymentdate',
+      'датаоплаты',
+      'датадоплаты',
+      'датапоплаты',
+      'датапредоплаты',
+      'фактическаядатаоплаты',
+      'когдаоплачен',
+    ],
+    dueDate: [
+      'duedate',
+      'duedatepayment',
+      'paymentduedate',
+      'dateofduedate',
+      'дедлайн',
+      'дедлайни',
+      'датаистечения14дней',
+      'срокоплаты',
+      'срок',
+      'deadline',
+    ],
+    dealExternalId: ['dealexternalid', 'dealid', 'idсделки', 'iddeal', '№', 'номер'],
+    invoiceExternalId: ['invoiceexternalid', 'invoiceid', 'invoicenumber', 'number', 'idсчета', 'idscheta', '№', 'номер'],
   },
   marketing_spend: {
     month: ['month', 'period', 'месяц'],
@@ -149,20 +193,23 @@ const FIELD_ALIASES: Record<FileType, Record<string, string[]>> = {
     status: ['status', 'state', 'статус', 'stage', 'этап'],
   },
   deals: {
-    dealExternalId: ['dealexternalid', 'dealid', 'idсделки', 'iddeal', 'deal_id'],
+    dealExternalId: ['dealexternalid', 'dealid', 'idсделки', 'iddeal', 'deal_id', '№', 'номер'],
     leadExternalId: ['leadexternalid', 'leadid', 'idлида', 'idlead', 'lead_id'],
-    customerExternalId: ['customerexternalid', 'customerid', 'clientid', 'idклиента'],
-    managerExternalId: ['managerexternalid', 'managerid', 'salesrepid', 'repid', 'idменеджера'],
+    customerExternalId: ['customerexternalid', 'customerid', 'clientid', 'idклиента', 'номертелефона', 'phone', 'телефон'],
+    managerExternalId: ['managerexternalid', 'managerid', 'salesrepid', 'repid', 'idменеджера', 'менеджер', 'оп'],
     createdDate: ['createddate', 'dealdate', 'date', 'дата', 'датасделки'],
     expectedCloseDate: ['expectedclosedate', 'closeexpecteddate', 'closedate', 'expectedclose', 'ожидаемаядата'],
     lastActivityDate: ['lastactivitydate', 'activitydate', 'lastactivity', 'lastupdated', 'последняяактивность'],
-    status: ['status', 'state', 'статус', 'stage', 'этап'],
-    wonDate: ['wondate', 'dealwon', 'closedwon', 'датаwon', 'датаокончания'],
+    status: ['status', 'state', 'статус', 'stage', 'этап', 'результат', 'исход'],
+    wonDate: ['wondate', 'dealwon', 'closedwon', 'датаwon', 'датаокончания', 'датадоплаты'],
+    lostReason: ['lostreason', 'lossreason', 'причина', 'причинаотказа', 'комментарий', 'почемуотказ'],
+    lostDate: ['lostdate', 'датапотери', 'датапроигрыша'],
+    lostStage: ['loststage', 'этаппотери', 'стадияотказа', 'точкапотери'],
   },
   payments: {
-    invoiceExternalId: ['invoiceexternalid', 'invoiceid', 'invoicenumber', 'number', 'idсчета', 'idscheta'],
-    paymentDate: ['paymentdate', 'date', 'оплата', 'payment'],
-    amount: ['amount', 'sum', 'value', 'total', 'сумма'],
+    invoiceExternalId: ['invoiceexternalid', 'invoiceid', 'invoicenumber', 'number', 'idсчета', 'idscheta', '№', 'номер'],
+    paymentDate: ['paymentdate', 'date', 'оплата', 'payment', 'дата'],
+    amount: ['amount', 'sum', 'value', 'total', 'сумма', 'суммаоплаты'],
     paymentExternalId: ['paymentexternalid', 'paymentid', 'idплатежа', 'transactionid', 'txnid'],
   },
   channels_campaigns: {
@@ -225,6 +272,54 @@ function normalizeRowsForType(rows: Record<string, unknown>[], fileType: FileTyp
   });
 }
 
+/** Add calendar days to YYYY-MM-DD (local date; stable for business deadlines). */
+function addDaysToYmd(ymd: string, days: number): string | undefined {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return undefined;
+  const [y, m, d] = ymd.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + days);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
+function resolveInvoicePaidDateYmd(
+  row: Record<string, unknown>,
+  invoiceYmd: string,
+  status: 'paid' | 'unpaid',
+): string | undefined {
+  if (row.paidDate && isValidDate(row.paidDate)) return toDateString(row.paidDate);
+  const alt = getRowValueByNormalizedKey(row, [
+    'paidDate',
+    'payment date',
+    'дата оплаты',
+    'дата доплаты',
+    'дата предоплаты',
+    'фактическая дата оплаты',
+    'когда оплачен',
+  ]);
+  if (alt != null && alt !== '' && isValidDate(alt)) return toDateString(alt);
+  if (status === 'paid') return invoiceYmd;
+  return undefined;
+}
+
+function resolveInvoiceDueDateYmd(row: Record<string, unknown>, invoiceYmd: string): string | undefined {
+  if (row.dueDate && isValidDate(row.dueDate)) return toDateString(row.dueDate);
+  const alt = getRowValueByNormalizedKey(row, [
+    'dueDate',
+    'due date',
+    'срок оплаты',
+    'срок',
+    'дедлайн',
+    'дата истечения 14 дней',
+    'истечение 14 дней',
+    'deadline',
+  ]);
+  if (alt != null && alt !== '' && isValidDate(alt)) return toDateString(alt);
+  return addDaysToYmd(invoiceYmd, 14);
+}
+
 // --- Parse by file type ---
 function parseTransactions(rows: Record<string, unknown>[]): ParseResult {
   const parsed: ParsedTransactionRow[] = [];
@@ -284,7 +379,7 @@ function parseCustomers(rows: Record<string, unknown>[]): ParseResult {
     }
 
     parsed.push({
-      customerExternalId: String(row.customerExternalId).trim(),
+      customerExternalId: normalizeCustomerExternalId(row.customerExternalId) ?? String(row.customerExternalId).trim(),
       name: String(row.name).trim(),
       segment: row.segment ? String(row.segment).trim() : undefined,
       startDate: row.startDate && isValidDate(row.startDate) ? toDateString(row.startDate) : undefined,
@@ -302,49 +397,65 @@ function parseInvoices(rows: Record<string, unknown>[]): ParseResult {
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const rowNum = i + 2;
+    const customerExternalId = normalizeCustomerExternalId(row.customerExternalId) ?? '';
 
     if (!isValidDate(row.invoiceDate)) {
       errors.push({ row: rowNum, field: 'invoiceDate', message: 'Неверный формат даты счёта' });
-      continue;
-    }
-    if (!row.customerExternalId || String(row.customerExternalId).trim() === '') {
-      errors.push({ row: rowNum, field: 'customerExternalId', message: 'ID клиента обязателен' });
       continue;
     }
     if (!isPositiveNumber(row.amount)) {
       errors.push({ row: rowNum, field: 'amount', message: 'Сумма должна быть положительным числом' });
       continue;
     }
-    const status = String(row.status).toLowerCase();
+    let status = String(row.status ?? '').toLowerCase().trim();
     if (status !== 'paid' && status !== 'unpaid') {
-      errors.push({ row: rowNum, field: 'status', message: 'Статус должен быть "paid" или "unpaid"' });
-      continue;
+      if (status.includes('опла') || status.includes('paid')) {
+        status = 'paid';
+      } else if (status.includes('неопла') || status.includes('unpaid')) {
+        status = 'unpaid';
+      }
+    }
+    if (status !== 'paid' && status !== 'unpaid') {
+      const statusNum = Number(row.status);
+      if (!Number.isNaN(statusNum)) {
+        status = statusNum <= 0 ? 'paid' : 'unpaid';
+      } else {
+        status = 'unpaid';
+      }
     }
 
+    const st = status as 'paid' | 'unpaid';
+    const invoiceYmd = toDateString(row.invoiceDate);
+    const paidYmd = resolveInvoicePaidDateYmd(row, invoiceYmd, st);
+    const dueYmd = resolveInvoiceDueDateYmd(row, invoiceYmd);
+
     parsed.push({
-      invoiceDate: toDateString(row.invoiceDate),
-      customerExternalId: String(row.customerExternalId).trim(),
+      invoiceDate: invoiceYmd,
+      customerExternalId: customerExternalId || `unknown_customer_${rowNum}`,
       amount: Number(row.amount),
-      status: status as 'paid' | 'unpaid',
-      paidDate: row.paidDate && isValidDate(row.paidDate) ? toDateString(row.paidDate) : undefined,
-      dueDate: row.dueDate && isValidDate(row.dueDate) ? toDateString(row.dueDate) : undefined,
-      dealExternalId: row.dealExternalId ? String(row.dealExternalId).trim() : undefined,
-      invoiceExternalId: row.invoiceExternalId ? String(row.invoiceExternalId).trim() : undefined,
+      status: st,
+      paidDate: paidYmd,
+      dueDate: dueYmd,
+      dealExternalId: normalizeReferenceId(row.dealExternalId),
+      invoiceExternalId: normalizeReferenceId(row.invoiceExternalId),
     });
 
     // Relational / MVP warnings (non-blocking for compatibility)
-    const computedDueDate =
-      row.dueDate && isValidDate(row.dueDate) ? toDateString(row.dueDate) : undefined;
-    const computedPaidDate =
-      row.paidDate && isValidDate(row.paidDate) ? toDateString(row.paidDate) : undefined;
     const computedInvoiceExternalId =
       row.invoiceExternalId ? String(row.invoiceExternalId).trim() : undefined;
 
-    if (!computedDueDate) {
+    if (!dueYmd) {
       warnings.push({
         row: rowNum,
         field: 'dueDate',
         message: 'Нет due date: метрики “ожидаемый приток/просрочка” будут неполными.',
+      });
+    }
+    if (!customerExternalId) {
+      warnings.push({
+        row: rowNum,
+        field: 'customerExternalId',
+        message: 'Нет customerExternalId: запись загружена с техническим ID, сводка по клиенту может быть неполной.',
       });
     }
     if (!computedInvoiceExternalId) {
@@ -354,7 +465,7 @@ function parseInvoices(rows: Record<string, unknown>[]): ParseResult {
         message: 'Нет invoiceExternalId: связать платежи будет сложнее.',
       });
     }
-    if (status === 'paid' && !computedPaidDate) {
+    if (status === 'paid' && !paidYmd) {
       warnings.push({
         row: rowNum,
         field: 'paidDate',
@@ -387,7 +498,7 @@ function parseMarketingSpend(rows: Record<string, unknown>[]): ParseResult {
     parsed.push({
       month: String(row.month),
       amount: Number(row.amount),
-      channelCampaignExternalId: row.channelCampaignExternalId ? String(row.channelCampaignExternalId).trim() : undefined,
+      channelCampaignExternalId: normalizeReferenceId(row.channelCampaignExternalId),
     });
 
     if (!row.channelCampaignExternalId || String(row.channelCampaignExternalId).trim() === '') {
@@ -432,13 +543,12 @@ function parseLeads(rows: Record<string, unknown>[]): ParseResult {
       }
     }
 
-    const computedChannelCampaignExternalId =
-      row.channelCampaignExternalId ? String(row.channelCampaignExternalId).trim() : undefined;
+    const computedChannelCampaignExternalId = normalizeReferenceId(row.channelCampaignExternalId);
     parsed.push({
-      leadExternalId: String(row.leadExternalId).trim(),
+      leadExternalId: normalizeLeadExternalId(row.leadExternalId) ?? String(row.leadExternalId).trim(),
       name: row.name ? String(row.name).trim() : undefined,
       channelCampaignExternalId: computedChannelCampaignExternalId,
-      managerExternalId: row.managerExternalId ? String(row.managerExternalId).trim() : undefined,
+      managerExternalId: normalizeReferenceId(row.managerExternalId),
       createdDate: row.createdDate && isValidDate(row.createdDate) ? toDateString(row.createdDate) : undefined,
       status: status as ParsedLeadRow['status'] | undefined,
     });
@@ -462,12 +572,66 @@ function parseDeals(rows: Record<string, unknown>[]): ParseResult {
 
   const allowedStatuses = new Set(['open', 'won', 'lost']);
 
+  const normalizeDealStatus = (value: unknown): ParsedDealRow['status'] | undefined => {
+    const raw = String(value ?? '').trim().toLowerCase();
+    if (!raw) return undefined;
+    if (allowedStatuses.has(raw)) return raw as ParsedDealRow['status'];
+
+    if (
+      raw.includes('won') ||
+      raw.includes('оплат') ||
+      raw.includes('успеш') ||
+      raw.includes('закрыт') ||
+      raw.includes('продан')
+    ) {
+      return 'won';
+    }
+    if (
+      raw.includes('lost') ||
+      raw.includes('отказ') ||
+      raw.includes('не куп') ||
+      raw.includes('нецел') ||
+      raw.includes('проиг')
+    ) {
+      return 'lost';
+    }
+    if (raw.includes('open') || raw.includes('работ') || raw.includes('в работе') || raw.includes('нов')) {
+      return 'open';
+    }
+    return undefined;
+  };
+
+  const normalizeLostReason = (value: unknown): ParsedDealRow['lostReason'] | undefined => {
+    const raw = String(value ?? '').trim().toLowerCase();
+    if (!raw) return undefined;
+    if (raw.includes('цена') || raw.includes('дорог')) return 'price';
+    if (raw.includes('нет ответ') || raw.includes('не отвечает') || raw.includes('игнор')) return 'no_response';
+    if (raw.includes('не акту') || raw.includes('не нуж') || raw.includes('неинтерес')) return 'not_relevant';
+    if (raw.includes('конкур')) return 'competitor';
+    if (raw.includes('позже') || raw.includes('не вовремя') || raw.includes('тайм') || raw.includes('timing')) return 'timing';
+    return 'other';
+  };
+
+  const normalizeLostStage = (value: unknown): string | undefined => {
+    const raw = String(value ?? '').trim().toLowerCase();
+    if (!raw) return undefined;
+    if (raw.includes('перв') || raw.includes('контакт') || raw.includes('lead')) return 'lead_to_deal';
+    if (raw.includes('сделк') || raw.includes('переговор') || raw.includes('deal')) return 'deal_to_won';
+    if (raw.includes('оплат') || raw.includes('счет') || raw.includes('инвойс') || raw.includes('paid')) return 'won_to_paid';
+    return String(value).trim();
+  };
+
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const rowNum = i + 2;
 
     if (!row.dealExternalId || String(row.dealExternalId).trim() === '') {
       errors.push({ row: rowNum, field: 'dealExternalId', message: 'ID сделки обязателен' });
+      continue;
+    }
+    const normalizedDealId = normalizeReferenceId(row.dealExternalId);
+    if (!normalizedDealId) {
+      errors.push({ row: rowNum, field: 'dealExternalId', message: 'ID сделки пустой после нормализации' });
       continue;
     }
 
@@ -488,28 +652,41 @@ function parseDeals(rows: Record<string, unknown>[]): ParseResult {
       continue;
     }
 
-    let status: string | undefined = undefined;
-    if (row.status !== undefined && row.status !== null && String(row.status).trim() !== '') {
-      status = String(row.status).toLowerCase();
-      if (!allowedStatuses.has(status)) {
-        errors.push({ row: rowNum, field: 'status', message: 'Статус сделки должен быть одним из: open, won, lost' });
-        continue;
-      }
+    const rawPaymentAmount = getRowValueByNormalizedKey(row, ['сумма оплаты', 'sum_paid', 'payment_amount', 'paid_amount']);
+    const numericPaymentAmount = Number(rawPaymentAmount);
+    const normalizedStatus = normalizeDealStatus(row.status);
+    const normalizedLostReason = normalizeLostReason(row.lostReason);
+    const normalizedLostStage = normalizeLostStage(row.lostStage);
+
+    let status: ParsedDealRow['status'] | undefined = normalizedStatus;
+    if (!status) {
+      if (normalizedLostReason) status = 'lost';
+      else if (row.wonDate || (!Number.isNaN(numericPaymentAmount) && numericPaymentAmount > 0)) status = 'won';
+      else status = 'open';
     }
 
-    const computedLeadExternalId = row.leadExternalId ? String(row.leadExternalId).trim() : undefined;
+    const customerExternalId = normalizeCustomerExternalId(row.customerExternalId);
+    let computedLeadExternalId = normalizeLeadExternalId(row.leadExternalId);
+    if (!computedLeadExternalId && customerExternalId?.startsWith('phone:')) {
+      computedLeadExternalId = customerExternalId;
+    }
     const computedWonDate = row.wonDate && isValidDate(row.wonDate) ? toDateString(row.wonDate) : undefined;
+    const computedLostDate = row.lostDate && isValidDate(row.lostDate) ? toDateString(row.lostDate) : undefined;
+    const managerExternalId = normalizeReferenceId(row.managerExternalId);
 
     parsed.push({
-      dealExternalId: String(row.dealExternalId).trim(),
+      dealExternalId: normalizedDealId,
       leadExternalId: computedLeadExternalId,
-      customerExternalId: row.customerExternalId ? String(row.customerExternalId).trim() : undefined,
-      managerExternalId: row.managerExternalId ? String(row.managerExternalId).trim() : undefined,
+      customerExternalId,
+      managerExternalId,
       createdDate: row.createdDate && isValidDate(row.createdDate) ? toDateString(row.createdDate) : undefined,
       expectedCloseDate: row.expectedCloseDate && isValidDate(row.expectedCloseDate) ? toDateString(row.expectedCloseDate) : undefined,
       lastActivityDate: row.lastActivityDate && isValidDate(row.lastActivityDate) ? toDateString(row.lastActivityDate) : undefined,
-      status: status as ParsedDealRow['status'] | undefined,
+      status,
       wonDate: computedWonDate,
+      lostDate: status === 'lost' ? (computedLostDate ?? (row.createdDate && isValidDate(row.createdDate) ? toDateString(row.createdDate) : undefined)) : undefined,
+      lostReason: status === 'lost' ? (normalizedLostReason ?? 'other') : undefined,
+      lostStage: status === 'lost' ? (normalizedLostStage ?? 'deal_to_won') : undefined,
     });
 
     if (status === 'won' && !computedWonDate) {
@@ -517,6 +694,13 @@ function parseDeals(rows: Record<string, unknown>[]): ParseResult {
         row: rowNum,
         field: 'wonDate',
         message: 'Сделка помечена как won, но wonDate не указан.',
+      });
+    }
+    if (status === 'lost' && !normalizedLostReason) {
+      warnings.push({
+        row: rowNum,
+        field: 'lostReason',
+        message: 'Сделка помечена как lost, но причина не распознана. Проставлено "other".',
       });
     }
     if (!computedLeadExternalId) {
@@ -553,8 +737,8 @@ function parsePayments(rows: Record<string, unknown>[]): ParseResult {
     }
 
     parsed.push({
-      paymentExternalId: row.paymentExternalId ? String(row.paymentExternalId).trim() : undefined,
-      invoiceExternalId: String(row.invoiceExternalId).trim(),
+      paymentExternalId: normalizeReferenceId(row.paymentExternalId),
+      invoiceExternalId: normalizeReferenceId(row.invoiceExternalId) ?? String(row.invoiceExternalId).trim(),
       paymentDate: toDateString(row.paymentDate),
       amount: Number(row.amount),
     });
@@ -581,7 +765,7 @@ function parseChannelsCampaigns(rows: Record<string, unknown>[]): ParseResult {
     }
 
     parsed.push({
-      channelCampaignExternalId: String(row.channelCampaignExternalId).trim(),
+      channelCampaignExternalId: normalizeReferenceId(row.channelCampaignExternalId) ?? String(row.channelCampaignExternalId).trim(),
       name: String(row.name).trim(),
       channelName: row.channelName ? String(row.channelName).trim() : undefined,
       campaignName: row.campaignName ? String(row.campaignName).trim() : undefined,
@@ -609,7 +793,7 @@ function parseManagers(rows: Record<string, unknown>[]): ParseResult {
     }
 
     parsed.push({
-      managerExternalId: String(row.managerExternalId).trim(),
+      managerExternalId: normalizeReferenceId(row.managerExternalId) ?? String(row.managerExternalId).trim(),
       name: String(row.name).trim(),
     });
   }
@@ -641,7 +825,7 @@ function parseContentMetrics(rows: Record<string, unknown>[]): ParseResult {
 
     parsed.push({
       platform,
-      contentId: String(row.contentId).trim(),
+      contentId: normalizeReferenceId(row.contentId) ?? String(row.contentId).trim(),
       contentTitle: row.contentTitle ? String(row.contentTitle).trim() : undefined,
       publishedAt: toDateString(row.publishedAt),
       impressions: Math.max(0, Number(row.impressions) || 0),
@@ -655,7 +839,7 @@ function parseContentMetrics(rows: Record<string, unknown>[]): ParseResult {
       leadsGenerated: Math.max(0, Number(row.leadsGenerated) || 0),
       dealsGenerated: Math.max(0, Number(row.dealsGenerated) || 0),
       paidConversions: Math.max(0, Number(row.paidConversions) || 0),
-      channelCampaignExternalId: row.channelCampaignExternalId ? String(row.channelCampaignExternalId).trim() : undefined,
+      channelCampaignExternalId: normalizeReferenceId(row.channelCampaignExternalId),
     });
   }
 

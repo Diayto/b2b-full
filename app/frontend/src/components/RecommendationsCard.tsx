@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 import CompactInsightCard from '@/components/controltower/CompactInsightCard';
 import SectionHeader from '@/components/controltower/SectionHeader';
 import type { MetricHelpKey } from '@/lib/metricHelp';
@@ -10,11 +11,12 @@ export default function RecommendationsCard(props: {
   items: RecommendationItem[];
   helpKey?: MetricHelpKey;
   compact?: boolean;
+  className?: string;
 }) {
-  const { title, description, items, helpKey, compact = true } = props;
+  const { title, description, items, helpKey, compact = true, className } = props;
 
   return (
-    <Card className="rct-card">
+    <Card className={cn('rct-card', className)}>
       <CardHeader className="rct-card-padding pb-2">
         <SectionHeader title={title} helpKey={helpKey} description={description} />
       </CardHeader>

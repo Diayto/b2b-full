@@ -134,8 +134,9 @@ export default function ControlTowerKpiCard(props: {
   return (
     <div
       className={cn(
-        'rct-card px-5 py-4 relative overflow-hidden group',
-        'hover:shadow-[0_2px_8px_-2px_rgb(0_0_0/0.08)]',
+        'chrona-tier-2 chrona-kpi-card px-5 py-4 relative overflow-hidden group',
+        'hover:-translate-y-0.5 hover:shadow-[0_22px_35px_-26px_hsl(var(--primary)/0.65)]',
+        'transition-all duration-200',
         cfg.border
       )}
     >

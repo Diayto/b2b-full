@@ -11,6 +11,7 @@ import type {
 } from './types';
 import type { ContentMetric } from './analytics/domain';
 import { generateMvpDemoData } from './demoData';
+import { normalizeCustomerExternalId, normalizeLeadExternalId, normalizeReferenceId } from './idNormalization';
 
 // --- Helpers ---
 function generateId(): string {
@@ -176,6 +177,7 @@ export function addCustomers(companyId: string, custs: Omit<Customer, 'id' | 'co
   const all = getItem<Customer>(KEYS.customers);
   const newCusts: Customer[] = custs.map(c => ({
     ...c,
+    customerExternalId: normalizeCustomerExternalId(c.customerExternalId) ?? c.customerExternalId,
     id: generateId(),
     companyId,
   }));
@@ -195,6 +197,9 @@ export function addInvoices(companyId: string, invs: Omit<Invoice, 'id' | 'compa
   const all = getItem<Invoice>(KEYS.invoices);
   const newInvs: Invoice[] = invs.map(i => ({
     ...i,
+    customerExternalId: normalizeCustomerExternalId(i.customerExternalId) ?? i.customerExternalId,
+    dealExternalId: normalizeReferenceId(i.dealExternalId),
+    invoiceExternalId: normalizeReferenceId(i.invoiceExternalId),
     id: generateId(),
     companyId,
   }));
@@ -214,6 +219,7 @@ export function addMarketingSpend(companyId: string, spends: Omit<MarketingSpend
   const all = getItem<MarketingSpend>(KEYS.marketingSpend);
   const newSpends: MarketingSpend[] = spends.map(s => ({
     ...s,
+    channelCampaignExternalId: normalizeReferenceId(s.channelCampaignExternalId),
     id: generateId(),
     companyId,
   }));
@@ -233,6 +239,9 @@ export function addLeads(companyId: string, leads: Omit<Lead, 'id' | 'companyId'
   const all = getItem<Lead>(KEYS.leads);
   const newLeads: Lead[] = leads.map((l) => ({
     ...l,
+    leadExternalId: normalizeReferenceId(l.leadExternalId) ?? l.leadExternalId,
+    channelCampaignExternalId: normalizeReferenceId(l.channelCampaignExternalId),
+    managerExternalId: normalizeReferenceId(l.managerExternalId),
     id: generateId(),
     companyId,
   }));
@@ -252,6 +261,10 @@ export function addDeals(companyId: string, deals: Omit<Deal, 'id' | 'companyId'
   const all = getItem<Deal>(KEYS.deals);
   const newDeals: Deal[] = deals.map((d) => ({
     ...d,
+    dealExternalId: normalizeReferenceId(d.dealExternalId) ?? d.dealExternalId,
+    leadExternalId: normalizeLeadExternalId(d.leadExternalId),
+    customerExternalId: normalizeCustomerExternalId(d.customerExternalId),
+    managerExternalId: normalizeReferenceId(d.managerExternalId),
     id: generateId(),
     companyId,
   }));
@@ -274,6 +287,7 @@ export function addChannelCampaigns(
   const all = getItem<ChannelCampaign>(KEYS.channelCampaigns);
   const newRows: ChannelCampaign[] = rows.map((cc) => ({
     ...cc,
+    channelCampaignExternalId: normalizeReferenceId(cc.channelCampaignExternalId) ?? cc.channelCampaignExternalId,
     id: generateId(),
     companyId,
   }));
@@ -293,6 +307,7 @@ export function addManagers(companyId: string, managers: Omit<Manager, 'id' | 'c
   const all = getItem<Manager>(KEYS.managers);
   const newRows: Manager[] = managers.map((m) => ({
     ...m,
+    managerExternalId: normalizeReferenceId(m.managerExternalId) ?? m.managerExternalId,
     id: generateId(),
     companyId,
   }));
@@ -315,6 +330,8 @@ export function addPayments(
   const all = getItem<PaymentTransaction>(KEYS.payments);
   const newRows: PaymentTransaction[] = payments.map((p) => ({
     ...p,
+    paymentExternalId: normalizeReferenceId(p.paymentExternalId),
+    invoiceExternalId: normalizeReferenceId(p.invoiceExternalId),
     id: generateId(),
     companyId,
   }));
@@ -337,6 +354,8 @@ export function addContentMetrics(
   const all = getItem<ContentMetric>(KEYS.contentMetrics);
   const newRows: ContentMetric[] = metrics.map((m) => ({
     ...m,
+    contentId: normalizeReferenceId(m.contentId) ?? m.contentId,
+    channelCampaignExternalId: normalizeReferenceId(m.channelCampaignExternalId),
     id: generateId(),
     companyId,
   }));

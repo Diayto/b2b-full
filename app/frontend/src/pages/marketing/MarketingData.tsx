@@ -11,9 +11,11 @@ import {
   getContentMetrics,
   getLeads,
   getDeals,
+  getInvoices,
+  getPayments,
 } from '@/lib/store';
 import { formatKZT } from '@/lib/metrics';
-import { computeSystemCompleteness } from '@/lib/analytics';
+import { computeLinkageDiagnostics, computeSystemCompleteness } from '@/lib/analytics';
 
 type SortKey = 'month' | 'amount';
 type SortDirection = 'asc' | 'desc';
@@ -95,6 +97,8 @@ export default function MarketingData() {
   const contentMetrics = getContentMetrics(companyId);
   const leads = getLeads(companyId);
   const deals = getDeals(companyId);
+  const invoices = getInvoices(companyId);
+  const payments = getPayments(companyId);
 
   const marketingUploads = getUploads(companyId)
     .filter((upload) => ['marketing_spend', 'channels_campaigns', 'content_metrics', 'leads', 'deals'].includes(upload.fileType))
@@ -133,13 +137,24 @@ export default function MarketingData() {
       computeSystemCompleteness({
         leads,
         deals,
-        invoices: [],
-        payments: [],
+        invoices,
+        payments,
         marketingSpend: marketingRows,
         channelCampaigns,
         contentMetrics,
       }),
-    [leads, deals, marketingRows, channelCampaigns, contentMetrics],
+    [leads, deals, invoices, payments, marketingRows, channelCampaigns, contentMetrics],
+  );
+
+  const linkageDiagnostics = useMemo(
+    () =>
+      computeLinkageDiagnostics({
+        leads,
+        deals,
+        invoices,
+        payments,
+      }),
+    [leads, deals, invoices, payments],
   );
 
   const hasAnyData =
@@ -159,11 +174,16 @@ export default function MarketingData() {
 
   return (
     <div className="chrona-page">
-      <div>
-        <h2 className="rct-page-title">Данные маркетинга</h2>
-        <p className="rct-body-micro text-muted-foreground mt-1">
-          Центр контроля маркетинг-данных: что загружено, что отсутствует и насколько данные пригодны для аналитики.
-        </p>
+      <div className="chrona-tier-1">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="rct-page-title">Marketing Data</h2>
+            <p className="rct-body-micro text-muted-foreground mt-1">
+              Центр контроля маркетинг-данных: что загружено, что отсутствует и насколько данные пригодны для аналитики.
+            </p>
+          </div>
+          <span className="chrona-topbar-chip">Data Control</span>
+        </div>
       </div>
 
       {!hasAnyData ? (
@@ -257,6 +277,44 @@ export default function MarketingData() {
                       ? 'Есть и органика, и расходы — отчёты будут наиболее полными.'
                       : 'Загрузите хотя бы один ключевой слой (контент/органика или расходы), чтобы начать анализ.'}
               </p>
+            </CardContent>
+          </Card>
+
+          <Card className="chrona-surface border-l-[3px] border-l-amber-400/70">
+            <CardHeader>
+              <CardTitle>Диагностика связей до денег</CardTitle>
+              <CardDescription>
+                Где рвётся цепочка атрибуции оплаты: оплата → счет → сделка → лид → источник.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline">
+                  Полная связка оплат: {linkageDiagnostics.fullyLinkedPayments}/{linkageDiagnostics.totalPayments}
+                </Badge>
+                <Badge variant="outline">
+                  Покрытие: {linkageDiagnostics.linkageCoveragePercent}%
+                </Badge>
+              </div>
+
+              {linkageDiagnostics.topBreakReasons.length > 0 ? (
+                <div className="space-y-2">
+                  {linkageDiagnostics.topBreakReasons.map((r) => (
+                    <div key={r.label} className="flex items-center justify-between chrona-muted-surface">
+                      <span className="text-sm text-muted-foreground">{r.label}</span>
+                      <Badge variant="outline" className="text-xs">{r.count}</Badge>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Разрывов связей по оплатам не обнаружено.</p>
+              )}
+
+              <div className="space-y-1">
+                {linkageDiagnostics.actions.slice(0, 3).map((a, idx) => (
+                  <p key={idx} className="text-xs text-muted-foreground">- {a}</p>
+                ))}
+              </div>
             </CardContent>
           </Card>
 

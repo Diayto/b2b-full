@@ -74,6 +74,16 @@ export { computeLeakageAnalysis } from './leakage';
 
 // --- Completeness Scoring ---
 export { computeSystemCompleteness } from './completeness';
+export type { LinkageDiagnostics } from './linkageDiagnostics';
+export { computeLinkageDiagnostics } from './linkageDiagnostics';
+
+// --- Strategic navigation (owner) ---
+export type { StrategicNextStep, StrategicStepHref, StrategicNextStepsInput } from './strategicNextSteps';
+export { computeStrategicNextSteps } from './strategicNextSteps';
+
+// --- Period review (reports) ---
+export type { MarketingPeriodReview, MarketingPeriodReviewInput, PeriodReviewMetrics } from './marketingPeriodReview';
+export { computeMarketingPeriodReview, rollingRangeDays } from './marketingPeriodReview';
 
 // --- Content / Organic Analytics ---
 export type {

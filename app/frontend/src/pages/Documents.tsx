@@ -151,11 +151,16 @@ export default function DocumentsPage() {
     <AppLayout>
       <div className="chrona-page">
         {/* Header */}
-        <div>
-          <h1 className="rct-page-title">Документы</h1>
-          <p className="rct-body-micro mt-1">
-            Договора и файлы компании — PDF, DOCX
-          </p>
+        <div className="chrona-tier-1">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1 className="rct-page-title">Documents Control</h1>
+              <p className="rct-body-micro mt-1">
+                Договоры и обязательства компании — в одном рабочем контуре.
+              </p>
+            </div>
+            <span className="chrona-topbar-chip">Operational Surface</span>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">

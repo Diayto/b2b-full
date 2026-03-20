@@ -14,22 +14,26 @@ export default function MarketingLayout() {
 
   return (
     <AppLayout>
-      <div className="flex flex-col min-h-full bg-background">
-        <header className="border-b border-border bg-card sticky top-0 z-10">
-          <div className="px-6 py-4">
-            <h1 className="text-2xl font-bold text-foreground">Маркетинг</h1>
+      <div className="flex flex-col min-h-full">
+        <header className="chrona-tier-1 mb-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1 className="rct-page-title">Marketing Workspace</h1>
+              <p className="rct-body-micro mt-1">Где внимание превращается в выручку</p>
+            </div>
+            <span className="chrona-topbar-chip">Chrona Marketing</span>
           </div>
         </header>
 
-        <Tabs value={location.pathname} className="border-b border-border bg-card">
-          <TabsList className="justify-start rounded-none h-auto bg-transparent px-6">
+        <Tabs value={location.pathname} className="mb-4">
+          <TabsList className="justify-start h-auto bg-transparent px-0 gap-2">
             {marketingTabs.map((tab) => (
               <TabsTrigger
                 key={tab.path}
                 value={tab.path}
                 className={cn(
-                  'rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none data-[state=active]:bg-transparent pb-3 px-6',
-                  'text-muted-foreground data-[state=active]:text-primary data-[state=active]:font-medium'
+                  'rounded-full border border-border/70 bg-card/60 px-4 py-2.5',
+                  'text-muted-foreground data-[state=active]:text-primary data-[state=active]:border-primary/40 data-[state=active]:bg-primary/10'
                 )}
                 asChild
               >
@@ -39,7 +43,7 @@ export default function MarketingLayout() {
           </TabsList>
         </Tabs>
 
-        <main className="flex-1 px-6 py-6 overflow-auto">
+        <main className="flex-1 overflow-auto">
           <Outlet />
         </main>
       </div>

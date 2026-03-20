@@ -3,7 +3,7 @@
 // Auto-detect, auto-map, mapping confirmation UI
 // ============================================================
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,7 @@ import {
   getSession,
   addTransactions,
   addCustomers,
+  getCustomers,
   addInvoices,
   addMarketingSpend,
   addLeads,
@@ -30,8 +31,25 @@ import {
   addUpload,
   getUploads,
   addContentMetrics,
+  getManagers,
+  getLeads,
+  getDeals,
+  getInvoices,
+  getPayments,
+  getChannelCampaigns,
+  getMarketingSpend,
+  getContentMetrics,
 } from '@/lib/store';
-import { parseFile, parseFromRows } from '@/lib/parsers';
+import { computeLinkageDiagnostics } from '@/lib/analytics';
+import {
+  sortSmartBatchPlans,
+  ensureDefaultOrganicChannel,
+  enrichLeadsWithDefaultChannel,
+  applyDefaultChannelToLeadRows,
+  ensureChannelsForMarketingSpendRows,
+} from '@/lib/import/smartWorkbookDefaults';
+import { buildAggregateSheetPlans, isAggregateSheetNameNormalized } from '@/lib/import/aggregateSheetPlans';
+import { parseFromRows } from '@/lib/parsers';
 import { detectAndMap, mapWithPreset, getTargetFieldsForType } from '@/lib/import';
 import { applyColumnMappings } from '@/lib/import/pipeline';
 import type { ColumnMapping, DetectionResult } from '@/lib/import/pipeline';
@@ -116,7 +134,7 @@ const FILE_TYPE_CONFIG: Record<FileType | 'auto', { label: string; description: 
 };
 
 // Read file to raw rows (duplicated for mapping step)
-async function fileToRawRows(file: File): Promise<Record<string, unknown>[]> {
+async function fileToRawRows(file: File, sheetName?: string): Promise<Record<string, unknown>[]> {
   const ext = file.name.split('.').pop()?.toLowerCase();
 
   if (ext === 'csv') {
@@ -134,15 +152,184 @@ async function fileToRawRows(file: File): Promise<Record<string, unknown>[]> {
   if (ext === 'xlsx' || ext === 'xls') {
     const buffer = await file.arrayBuffer();
     const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
-    const sheetName = wb.SheetNames[0];
-    const sheet = wb.Sheets[sheetName];
-    return XLSX.utils.sheet_to_json(sheet, { defval: '' });
+    const resolvedSheetName = sheetName && wb.Sheets[sheetName] ? sheetName : wb.SheetNames[0];
+    const sheet = wb.Sheets[resolvedSheetName];
+    return parseWorksheetToRows(sheet);
   }
 
   throw new Error(`Неподдерживаемый формат: .${ext}`);
 }
 
 type UploadStep = 'select' | 'mapping' | 'preview' | 'done';
+
+interface PostImportChecklist {
+  hasLeads: boolean;
+  hasDeals: boolean;
+  hasInvoices: boolean;
+  hasPayments: boolean;
+  hasChannels: boolean;
+  hasSpend: boolean;
+  hasContent: boolean;
+  linkageCoveragePercent: number;
+  actions: string[];
+}
+
+interface GuidedStep {
+  id: 'consultations' | 'sales' | 'summary';
+  title: string;
+  sheetHint: string;
+  targetType: FileType;
+  done: boolean;
+}
+
+function suggestFileTypeBySheetName(sheetName: string): FileType | null {
+  const normalized = sheetName.toLowerCase().trim();
+  if (normalized.includes('консультац')) return 'leads';
+  if (normalized.includes('продаж')) return 'deals';
+  if (normalized.includes('свод')) return 'marketing_spend';
+  if (normalized.includes('расход') || normalized.includes('spend')) return 'marketing_spend';
+  return null;
+}
+
+function parseWorksheetToRows(sheet: XLSX.WorkSheet): Record<string, unknown>[] {
+  const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as unknown[][];
+  if (!matrix.length) return [];
+
+  let bestHeaderIndex = 0;
+  let bestScore = -1;
+  for (let i = 0; i < Math.min(12, matrix.length); i++) {
+    const row = matrix[i] ?? [];
+    const score = row.filter((cell) => {
+      const text = String(cell ?? '').trim();
+      return text.length > 0 && Number.isNaN(Number(text));
+    }).length;
+    if (score > bestScore) {
+      bestScore = score;
+      bestHeaderIndex = i;
+    }
+  }
+
+  const headerRow = matrix[bestHeaderIndex] ?? [];
+  const headers = headerRow.map((cell, idx) => {
+    const text = String(cell ?? '').trim();
+    if (!text) return idx === 0 ? '№' : `col_${idx + 1}`;
+    return text;
+  });
+
+  const rows = matrix.slice(bestHeaderIndex + 1).map((row) => {
+    const obj: Record<string, unknown> = {};
+    headers.forEach((h, idx) => {
+      obj[h] = row?.[idx] ?? '';
+    });
+    return obj;
+  });
+
+  return rows.filter((row) => {
+    const values = Object.values(row);
+    const nonEmpty = values.filter((v) => v !== null && v !== undefined && String(v).trim() !== '');
+    if (nonEmpty.length === 0) return false;
+
+    const keys = Object.keys(row).map((k) => k.toLowerCase().trim());
+    const hasPhoneCol = keys.some((k) => k.includes('номер телефона') || k.includes('phone'));
+    if (hasPhoneCol) {
+      const phoneKey = Object.keys(row).find((k) => k.toLowerCase().includes('номер телефона') || k.toLowerCase().includes('phone'));
+      const nameKey = Object.keys(row).find((k) => k.toLowerCase().trim() === 'имя');
+      const managerKey = Object.keys(row).find((k) => k.toLowerCase().includes('менеджер') || k.toLowerCase().includes('оп'));
+      const dateKey = Object.keys(row).find((k) => k.toLowerCase().trim() === 'дата');
+
+      const phoneVal = phoneKey ? String(row[phoneKey] ?? '').trim() : '';
+      const nameVal = nameKey ? String(row[nameKey] ?? '').trim() : '';
+      const managerVal = managerKey ? String(row[managerKey] ?? '').trim() : '';
+      const dateVal = dateKey ? String(row[dateKey] ?? '').trim() : '';
+
+      if (!phoneVal && !nameVal && !managerVal && !dateVal) return false;
+    }
+
+    const hasAggregateWord = nonEmpty.some((v) => {
+      const s = String(v).toLowerCase();
+      return s.includes('итог') || s.includes('total');
+    });
+    if (hasAggregateWord && nonEmpty.length <= 3) return false;
+
+    return true;
+  });
+}
+
+interface SmartBatchSheetPlan {
+  sheetName: string;
+  fileType: FileType;
+  mappedRows: Record<string, unknown>[];
+  parsed: Awaited<ReturnType<typeof parseFromRows>>;
+}
+
+/**
+ * Build 0..n import plans per sheet (e.g. ПРОДАЖИ → deals + invoices).
+ */
+function buildPlansForWorkbookSheet(sheetName: string, rows: Record<string, unknown>[]): SmartBatchSheetPlan[] {
+  if (rows.length === 0) return [];
+  const normalized = sheetName.toLowerCase().trim();
+
+  const cols = Object.keys(rows[0]);
+  const out: SmartBatchSheetPlan[] = [];
+
+  if (normalized.includes('продаж')) {
+    const dealDet = mapWithPreset(cols, 'deals');
+    if (dealDet.mappings.length > 0) {
+      const mapped = applyColumnMappings(rows, dealDet.mappings);
+      const parsed = parseFromRows(mapped, 'deals');
+      if (parsed.rows.length > 0) {
+        out.push({ sheetName, fileType: 'deals', mappedRows: mapped, parsed });
+      }
+    }
+    const invDet = mapWithPreset(cols, 'invoices');
+    if (invDet.mappings.length > 0) {
+      const mapped = applyColumnMappings(rows, invDet.mappings);
+      const parsed = parseFromRows(mapped, 'invoices');
+      if (parsed.rows.length > 0) {
+        out.push({ sheetName, fileType: 'invoices', mappedRows: mapped, parsed });
+      }
+    }
+    return out;
+  }
+
+  if (isAggregateSheetNameNormalized(normalized)) {
+    return buildAggregateSheetPlans(sheetName, rows) as SmartBatchSheetPlan[];
+  }
+
+  const suggestedType = suggestFileTypeBySheetName(sheetName);
+  let detection: DetectionResult = suggestedType
+    ? mapWithPreset(cols, suggestedType)
+    : detectAndMap(cols);
+
+  if (!detection.mappings.length) return out;
+
+  let mappedRows = applyColumnMappings(rows, detection.mappings);
+  let parsed = parseFromRows(mappedRows, detection.fileType);
+
+  if (parsed.rows.length === 0 && !suggestedType) {
+    const fallbacks: FileType[] = ['leads', 'deals', 'invoices', 'marketing_spend', 'customers'];
+    for (const ft of fallbacks) {
+      const det = mapWithPreset(cols, ft);
+      if (det.mappings.length === 0) continue;
+      const m = applyColumnMappings(rows, det.mappings);
+      const p = parseFromRows(m, ft);
+      if (p.rows.length > 0) {
+        detection = det;
+        mappedRows = m;
+        parsed = p;
+        break;
+      }
+    }
+  }
+
+  if (parsed.rows.length === 0) return out;
+
+  const finalParsed =
+    detection.fileType === 'leads' ? enrichLeadsWithDefaultChannel(parsed) : parsed;
+
+  out.push({ sheetName, fileType: detection.fileType, mappedRows, parsed: finalParsed });
+  return out;
+}
 
 export default function UploadsPage() {
   const navigate = useNavigate();
@@ -165,8 +352,21 @@ export default function UploadsPage() {
   const [editableMappings, setEditableMappings] = useState<ColumnMapping[]>([]);
   const [rawRows, setRawRows] = useState<Record<string, unknown>[]>([]);
   const [sourceColumns, setSourceColumns] = useState<string[]>([]);
+  const [availableSheets, setAvailableSheets] = useState<string[]>([]);
+  const [selectedSheet, setSelectedSheet] = useState<string>('');
+  const [sheetTypeSuggestion, setSheetTypeSuggestion] = useState<FileType | null>(null);
+  const [postImportChecklist, setPostImportChecklist] = useState<PostImportChecklist | null>(null);
+  const [smartBatchPlan, setSmartBatchPlan] = useState<SmartBatchSheetPlan[] | null>(null);
 
   const uploads = getUploads(companyId);
+
+  const readSheetNames = useCallback(async (file: File): Promise<string[]> => {
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (ext !== 'xlsx' && ext !== 'xls') return [];
+    const buffer = await file.arrayBuffer();
+    const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+    return wb.SheetNames ?? [];
+  }, []);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -187,58 +387,145 @@ export default function UploadsPage() {
     setStep('select');
     setDetectionResult(null);
     setParsedResult(null);
-  }, []);
+    setRawRows([]);
+    setSourceColumns([]);
+    setEditableMappings([]);
+    setAvailableSheets([]);
+    setSelectedSheet('');
+    setSheetTypeSuggestion(null);
+    setPostImportChecklist(null);
+    setSmartBatchPlan(null);
 
-  // Smart analyze: detectAndMap primary, smartMapColumns fallback
+    const normalizedExt = ext?.toLowerCase();
+    if (normalizedExt === 'xlsx' || normalizedExt === 'xls') {
+      void readSheetNames(file)
+        .then((sheetNames) => {
+          setAvailableSheets(sheetNames);
+          const initialSheet = sheetNames[0] ?? '';
+          setSelectedSheet(initialSheet);
+          setSheetTypeSuggestion(initialSheet ? suggestFileTypeBySheetName(initialSheet) : null);
+        })
+        .catch(() => {
+          setAvailableSheets([]);
+          setSelectedSheet('');
+          setSheetTypeSuggestion(null);
+        });
+    }
+  }, [readSheetNames]);
+
+  // Smart analyze:
+  // - CSV/single-sheet: detect type + mapping confirmation
+  // - XLSX multi-sheet: auto-build batch plan (no per-sheet manual selection)
   const handleSmartAnalyze = useCallback(async () => {
     if (!selectedFile) return;
     setProcessing(true);
     try {
-      const rows = await fileToRawRows(selectedFile);
-      setRawRows(rows);
+      const ext = selectedFile.name.split('.').pop()?.toLowerCase();
+      const isWorkbook = ext === 'xlsx' || ext === 'xls';
 
-      if (rows.length === 0) {
-        toast.error('Файл пустой');
-        setProcessing(false);
-        return;
-      }
+      if (isWorkbook && fileType === 'auto' && availableSheets.length >= 1) {
+        const buffer = await selectedFile.arrayBuffer();
+        const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+        const plans: SmartBatchSheetPlan[] = [];
+        const allErrors: ValidationError[] = [];
+        const allWarnings: ValidationWarning[] = [];
 
-      const cols = Object.keys(rows[0]);
-      setSourceColumns(cols);
+        for (const sheetName of wb.SheetNames) {
+          const ws = wb.Sheets[sheetName];
+          const rows = parseWorksheetToRows(ws);
+          const sheetPlans = buildPlansForWorkbookSheet(sheetName, rows);
+          for (const plan of sheetPlans) {
+            plans.push(plan);
+            for (const e of plan.parsed.errors.slice(0, 10)) {
+              allErrors.push({
+                ...e,
+                field: `${plan.sheetName} · ${plan.fileType} · ${e.field}`,
+              });
+            }
+            for (const w of (plan.parsed.warnings ?? []).slice(0, 10)) {
+              allWarnings.push({
+                ...w,
+                field: `${plan.sheetName} · ${plan.fileType} · ${w.field}`,
+              });
+            }
+          }
+        }
 
-      let detection: DetectionResult;
-      const primary = detectAndMap(cols);
-      if (primary.confidence >= 0.2 && primary.mappings.length > 0) {
-        detection = primary;
+        if (plans.length === 0) {
+          toast.error('Не удалось автоматически разобрать листы файла. Попробуйте ручной режим.');
+          return;
+        }
+
+        setSmartBatchPlan(plans);
+        setDetectionResult(null);
+        setEditableMappings([]);
+        setAutoDetectedType(null);
+
+        const first = plans[0];
+        setRawRows(first.mappedRows);
+        setSourceColumns(Object.keys(first.mappedRows[0] ?? {}));
+        setPreview(first.mappedRows.slice(0, 20));
+        setErrors(allErrors);
+        setWarnings(allWarnings);
+        setStep('preview');
+
+        const importedTypes = Array.from(new Set(plans.map((p) => FILE_TYPE_CONFIG[p.fileType].label))).join(', ');
+        toast.success(`Умный режим подготовил ${plans.length} лист(ов): ${importedTypes}`);
       } else {
-        const fallback = smartMapColumns(cols);
-        detection = {
-          fileType: fallback.detectedType,
-          confidence: fallback.typeConfidence / 100,
-          mappings: fallback.mappings.map((m) => ({
-            sourceColumn: m.sourceColumn,
-            targetField: m.targetField,
-            confidence: m.confidence / 100,
-            isUserOverride: false,
-          })),
-          unmappedSourceColumns: fallback.unmappedSourceColumns,
-          unmappedTargetFields: fallback.unmappedTargetFields,
-        };
+        const rows = await fileToRawRows(selectedFile, selectedSheet || undefined);
+        setRawRows(rows);
+        setSmartBatchPlan(null);
+
+        if (rows.length === 0) {
+          toast.error('Файл пустой');
+          return;
+        }
+
+        const cols = Object.keys(rows[0]);
+        setSourceColumns(cols);
+
+        let detection: DetectionResult;
+        const suggestedType = sheetTypeSuggestion ?? suggestFileTypeBySheetName(selectedSheet || '');
+        if (suggestedType) {
+          detection = mapWithPreset(cols, suggestedType);
+          if (!detection || detection.mappings.length === 0) {
+            detection = detectAndMap(cols);
+          }
+        } else {
+          const primary = detectAndMap(cols);
+          if (primary.confidence >= 0.2 && primary.mappings.length > 0) {
+            detection = primary;
+          } else {
+            const fallback = smartMapColumns(cols);
+            detection = {
+              fileType: fallback.detectedType,
+              confidence: fallback.typeConfidence / 100,
+              mappings: fallback.mappings.map((m) => ({
+                sourceColumn: m.sourceColumn,
+                targetField: m.targetField,
+                confidence: m.confidence / 100,
+                isUserOverride: false,
+              })),
+              unmappedSourceColumns: fallback.unmappedSourceColumns,
+              unmappedTargetFields: fallback.unmappedTargetFields,
+            };
+          }
+        }
+
+        setDetectionResult(detection);
+        setEditableMappings([...detection.mappings]);
+        setAutoDetectedType(detection.fileType);
+        setStep('mapping');
+
+        const confPct = Math.round(detection.confidence * 100);
+        toast.success(`Определено как "${FILE_TYPE_CONFIG[detection.fileType].label}" (${detection.mappings.length} колонок · уверенность ${confPct}%)`);
       }
-
-      setDetectionResult(detection);
-      setEditableMappings([...detection.mappings]);
-      setAutoDetectedType(detection.fileType);
-      setStep('mapping');
-
-      const confPct = Math.round(detection.confidence * 100);
-      toast.success(`Определено как "${FILE_TYPE_CONFIG[detection.fileType].label}" (${detection.mappings.length} колонок · уверенность ${confPct}%)`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Ошибка чтения файла');
     } finally {
       setProcessing(false);
     }
-  }, [selectedFile]);
+  }, [selectedFile, selectedSheet, availableSheets, sheetTypeSuggestion, fileType]);
 
   const updateMapping = useCallback((sourceColumn: string, newTarget: string) => {
     setEditableMappings((prev) =>
@@ -250,12 +537,98 @@ export default function UploadsPage() {
     );
   }, []);
 
+  const importRowsForType = useCallback((resolvedFileType: FileType, successRows: Awaited<ReturnType<typeof parseFromRows>>['rows']) => {
+    switch (resolvedFileType) {
+      case 'transactions':
+        addTransactions(companyId, successRows as ParsedTransactionRow[]);
+        break;
+      case 'customers':
+        addCustomers(companyId, (successRows as ParsedCustomerRow[]).map((c) => ({
+          ...c,
+          customerExternalId: c.customerExternalId,
+        })));
+        break;
+      case 'invoices':
+        addInvoices(companyId, successRows as ParsedInvoiceRow[]);
+        {
+          const invoiceRows = successRows as ParsedInvoiceRow[];
+          const existingCustomerIds = new Set(
+            getCustomers(companyId)
+              .map((c) => c.customerExternalId?.trim())
+              .filter((id): id is string => Boolean(id)),
+          );
+          const customersFromInvoices: ParsedCustomerRow[] = [];
+          for (const inv of invoiceRows) {
+            const customerId = inv.customerExternalId?.trim();
+            if (!customerId || existingCustomerIds.has(customerId)) continue;
+            existingCustomerIds.add(customerId);
+            customersFromInvoices.push({ customerExternalId: customerId, name: customerId });
+          }
+          if (customersFromInvoices.length > 0) addCustomers(companyId, customersFromInvoices);
+        }
+        break;
+      case 'marketing_spend':
+        ensureChannelsForMarketingSpendRows(companyId, successRows as ParsedMarketingSpendRow[]);
+        addMarketingSpend(companyId, successRows as ParsedMarketingSpendRow[]);
+        break;
+      case 'leads':
+        ensureDefaultOrganicChannel(companyId);
+        addLeads(companyId, applyDefaultChannelToLeadRows(successRows as ParsedLeadRow[]));
+        break;
+      case 'deals':
+        addDeals(companyId, successRows as ParsedDealRow[]);
+        {
+          const dealRows = successRows as ParsedDealRow[];
+          const existingCustomerIds = new Set(
+            getCustomers(companyId)
+              .map((c) => c.customerExternalId?.trim())
+              .filter((id): id is string => Boolean(id)),
+          );
+          const existingManagerIds = new Set(
+            getManagers(companyId)
+              .map((m) => m.managerExternalId?.trim())
+              .filter((id): id is string => Boolean(id)),
+          );
+          const customersFromDeals: ParsedCustomerRow[] = [];
+          const managersFromDeals: ParsedManagerRow[] = [];
+          for (const d of dealRows) {
+            const customerId = d.customerExternalId?.trim();
+            const managerId = d.managerExternalId?.trim();
+            if (customerId && !existingCustomerIds.has(customerId)) {
+              existingCustomerIds.add(customerId);
+              customersFromDeals.push({ customerExternalId: customerId, name: customerId });
+            }
+            if (!managerId || existingManagerIds.has(managerId)) continue;
+            existingManagerIds.add(managerId);
+            managersFromDeals.push({ managerExternalId: managerId, name: managerId });
+          }
+          if (customersFromDeals.length > 0) addCustomers(companyId, customersFromDeals);
+          if (managersFromDeals.length > 0) addManagers(companyId, managersFromDeals);
+        }
+        break;
+      case 'payments':
+        addPayments(companyId, successRows as ParsedPaymentRow[]);
+        break;
+      case 'channels_campaigns':
+        addChannelCampaigns(companyId, successRows as ParsedChannelCampaignRow[]);
+        break;
+      case 'managers':
+        addManagers(companyId, successRows as ParsedManagerRow[]);
+        break;
+      case 'content_metrics':
+        addContentMetrics(companyId, successRows as ParsedContentMetricRow[]);
+        break;
+    }
+  }, [companyId]);
+
   const handleConfirmMapping = useCallback(async () => {
     if (!detectionResult || !autoDetectedType) return;
     setProcessing(true);
     try {
       const mappedRows = applyColumnMappings(rawRows, editableMappings);
-      const parsed = parseFromRows(mappedRows, autoDetectedType);
+      const rawParsed = parseFromRows(mappedRows, autoDetectedType);
+      const parsed =
+        autoDetectedType === 'leads' ? enrichLeadsWithDefaultChannel(rawParsed) : rawParsed;
 
       setParsedResult(parsed);
       setPreview(mappedRows.slice(0, 20));
@@ -275,88 +648,108 @@ export default function UploadsPage() {
     if (!selectedFile || !companyId) return;
     setProcessing(true);
     try {
-      let parsed: Awaited<ReturnType<typeof parseFromRows>>;
-      let resolvedFileType: FileType;
+      let totalRows = 0;
+      let totalSuccess = 0;
+      let totalErrors = 0;
 
-      if (step === 'preview' && parsedResult) {
-        parsed = parsedResult;
-        resolvedFileType = autoDetectedType ?? fileType as FileType;
-      } else {
-        resolvedFileType = fileType as FileType;
-        if (resolvedFileType === 'auto') {
-          toast.error('Укажите тип данных вручную или используйте «Анализировать» для автоопределения');
-          setProcessing(false);
-          return;
+      if (smartBatchPlan && smartBatchPlan.length > 0) {
+        const orderedPlans = sortSmartBatchPlans(smartBatchPlan);
+        for (const plan of orderedPlans) {
+          const successRows = plan.parsed.rows;
+          importRowsForType(plan.fileType, successRows);
+          addUpload(companyId, {
+            fileType: plan.fileType,
+            originalFileName: `${selectedFile.name} · ${plan.sheetName}`,
+            status: 'completed',
+            totalRows: plan.parsed.totalRows,
+            successRows: successRows.length,
+            errorRows: plan.parsed.errors.length,
+            errors: plan.parsed.errors,
+            warnings: plan.parsed.warnings ?? [],
+          });
+          totalRows += plan.parsed.totalRows;
+          totalSuccess += successRows.length;
+          totalErrors += plan.parsed.errors.length;
         }
-        const fileParsed = await parseFile(selectedFile, resolvedFileType);
-        parsed = fileParsed;
+      } else {
+        let parsed: Awaited<ReturnType<typeof parseFromRows>>;
+        let resolvedFileType: FileType;
+
+        if (step === 'preview' && parsedResult) {
+          parsed = parsedResult;
+          resolvedFileType = autoDetectedType ?? fileType as FileType;
+        } else {
+          resolvedFileType = fileType as FileType;
+          if (resolvedFileType === 'auto') {
+            toast.error('Используйте умный анализ перед загрузкой.');
+            return;
+          }
+          const directRows = await fileToRawRows(selectedFile, selectedSheet || undefined);
+          parsed = parseFromRows(directRows, resolvedFileType);
+        }
+
+        const successRows = parsed.rows;
+        importRowsForType(resolvedFileType, successRows);
+        addUpload(companyId, {
+          fileType: resolvedFileType,
+          originalFileName: selectedFile.name,
+          status: 'completed',
+          totalRows: parsed.totalRows,
+          successRows: successRows.length,
+          errorRows: parsed.errors.length,
+          errors: parsed.errors,
+          warnings: parsed.warnings ?? [],
+        });
+        totalRows = parsed.totalRows;
+        totalSuccess = successRows.length;
+        totalErrors = parsed.errors.length;
       }
-
-      const successRows = parsed.rows;
-
-      switch (resolvedFileType) {
-        case 'transactions':
-          addTransactions(companyId, successRows as ParsedTransactionRow[]);
-          break;
-        case 'customers':
-          addCustomers(companyId, (successRows as ParsedCustomerRow[]).map((c) => ({
-            ...c,
-            customerExternalId: c.customerExternalId,
-          })));
-          break;
-        case 'invoices':
-          addInvoices(companyId, successRows as ParsedInvoiceRow[]);
-          break;
-        case 'marketing_spend':
-          addMarketingSpend(companyId, successRows as ParsedMarketingSpendRow[]);
-          break;
-        case 'leads':
-          addLeads(companyId, successRows as ParsedLeadRow[]);
-          break;
-        case 'deals':
-          addDeals(companyId, successRows as ParsedDealRow[]);
-          break;
-        case 'payments':
-          addPayments(companyId, successRows as ParsedPaymentRow[]);
-          break;
-        case 'channels_campaigns':
-          addChannelCampaigns(companyId, successRows as ParsedChannelCampaignRow[]);
-          break;
-        case 'managers':
-          addManagers(companyId, successRows as ParsedManagerRow[]);
-          break;
-        case 'content_metrics':
-          addContentMetrics(companyId, successRows as ParsedContentMetricRow[]);
-          break;
-      }
-
-      addUpload(companyId, {
-        fileType: resolvedFileType,
-        originalFileName: selectedFile.name,
-        status: 'completed',
-        totalRows: parsed.totalRows,
-        successRows: successRows.length,
-        errorRows: parsed.errors.length,
-        errors: parsed.errors,
-        warnings: parsed.warnings ?? [],
-      });
 
       setResult({
-        success: successRows.length,
-        total: parsed.totalRows,
-        errors: parsed.errors.length,
+        success: totalSuccess,
+        total: totalRows,
+        errors: totalErrors,
       });
-      setErrors(parsed.errors);
-      setWarnings(parsed.warnings ?? []);
-      setStep('done');
 
-      toast.success(`Загружено ${successRows.length} записей из ${parsed.totalRows}`);
+      const leadsAfter = getLeads(companyId);
+      const dealsAfter = getDeals(companyId);
+      const invoicesAfter = getInvoices(companyId);
+      const paymentsAfter = getPayments(companyId);
+      const channelsAfter = getChannelCampaigns(companyId);
+      const spendAfter = getMarketingSpend(companyId);
+      const contentAfter = getContentMetrics(companyId);
+      const linkage = computeLinkageDiagnostics({
+        leads: leadsAfter,
+        deals: dealsAfter,
+        invoices: invoicesAfter,
+        payments: paymentsAfter,
+      });
+      setPostImportChecklist({
+        hasLeads: leadsAfter.length > 0,
+        hasDeals: dealsAfter.length > 0,
+        hasInvoices: invoicesAfter.length > 0,
+        hasPayments: paymentsAfter.length > 0,
+        hasChannels: channelsAfter.length > 0,
+        hasSpend: spendAfter.length > 0,
+        hasContent: contentAfter.length > 0,
+        linkageCoveragePercent: linkage.linkageCoveragePercent,
+        actions: linkage.actions,
+      });
+
+      if (!(smartBatchPlan && smartBatchPlan.length > 0)) {
+        // In single-sheet mode keep parse diagnostics; in batch mode keep pre-upload diagnostics.
+        setErrors([]);
+        setWarnings([]);
+      }
+      setStep('done');
+      setSmartBatchPlan(null);
+      toast.success(`Загружено ${totalSuccess} записей из ${totalRows}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Ошибка загрузки');
     } finally {
       setProcessing(false);
     }
-  }, [selectedFile, fileType, companyId]);
+  }, [selectedFile, fileType, companyId, step, parsedResult, autoDetectedType, selectedSheet, smartBatchPlan, importRowsForType]);
 
   const resetForm = () => {
     setSelectedFile(null);
@@ -368,28 +761,71 @@ export default function UploadsPage() {
     setEditableMappings([]);
     setRawRows([]);
     setSourceColumns([]);
+    setAvailableSheets([]);
+    setSelectedSheet('');
+    setSheetTypeSuggestion(null);
+    setPostImportChecklist(null);
+    setSmartBatchPlan(null);
   };
+
+  // Available target fields for the detected type
+  const targetFieldOptions = autoDetectedType
+    ? FILE_TYPE_CONFIG[autoDetectedType]?.columns ?? []
+    : [];
+
+  const guidedSteps = (() => {
+    const leadsCount = getLeads(companyId).length;
+    const dealsCount = getDeals(companyId).length;
+    const invoicesCount = getInvoices(companyId).length;
+    const steps: GuidedStep[] = [
+      {
+        id: 'consultations',
+        title: 'Шаг 1: Консультации → Лиды',
+        sheetHint: 'Консультации',
+        targetType: 'leads',
+        done: leadsCount > 0,
+      },
+      {
+        id: 'sales',
+        title: 'Шаг 2: Продажи → Сделки',
+        sheetHint: 'ПРОДАЖИ',
+        targetType: 'deals',
+        done: dealsCount > 0,
+      },
+      {
+        id: 'summary',
+        title: 'Шаг 3: Продажи → Счета (опционально)',
+        sheetHint: 'ПРОДАЖИ',
+        targetType: 'invoices',
+        done: invoicesCount > 0,
+      },
+    ];
+    return steps;
+  })();
+
+  const completedGuidedSteps = guidedSteps.filter((s) => s.done).length;
+  const guidedProgressPercent = Math.round((completedGuidedSteps / guidedSteps.length) * 100);
+  const nextGuidedStep = guidedSteps.find((s) => !s.done) ?? null;
 
   if (!session) {
     navigate('/');
     return null;
   }
 
-  // Available target fields for the detected type
-  const targetFieldOptions = useMemo(() => {
-    if (!autoDetectedType) return [];
-    return FILE_TYPE_CONFIG[autoDetectedType]?.columns ?? [];
-  }, [autoDetectedType]);
-
   return (
     <AppLayout>
       <div className="chrona-page">
         {/* Header */}
-        <div>
-          <h1 className="rct-page-title">Центр загрузок</h1>
-          <p className="rct-body-micro mt-1">
-            Загрузите любую таблицу — система сама определит тип данных и сопоставит колонки
-          </p>
+        <div className="chrona-tier-1">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1 className="rct-page-title">Smart Upload Workspace</h1>
+              <p className="rct-body-micro mt-1">
+                Загрузите любую таблицу — Chrona сам определит тип данных и сопоставит колонки.
+              </p>
+            </div>
+            <span className="chrona-topbar-chip">Import Intelligence</span>
+          </div>
         </div>
 
         {/* Progress steps */}
@@ -430,6 +866,44 @@ export default function UploadsPage() {
                   <CardDescription>Выберите режим и загрузите файл</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-5">
+                  <div className="chrona-muted-surface">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-foreground">Ручной режим: порядок листов</p>
+                      <Badge variant="outline" className="text-xs">{guidedProgressPercent}%</Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      <span className="font-medium text-foreground">Умная загрузка</span> уже тянет все листы сразу. Ниже — подсказка только если вы сами выбираете тип файла: Консультации → Продажи → Свод.
+                    </p>
+                    <div className="mt-3 space-y-2">
+                      {guidedSteps.map((stepItem) => (
+                        <div key={stepItem.id} className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-foreground">{stepItem.title}</p>
+                            <p className="text-[11px] text-muted-foreground">Лист: {stepItem.sheetHint} · Тип: {FILE_TYPE_CONFIG[stepItem.targetType].label}</p>
+                          </div>
+                          <Badge variant={stepItem.done ? 'default' : 'outline'} className="text-[10px]">
+                            {stepItem.done ? 'Готово' : 'Ожидает'}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                    {nextGuidedStep && (
+                      <div className="mt-3">
+                        <p className="text-xs text-muted-foreground mb-2">
+                          Следующий шаг: <span className="font-medium text-foreground">{nextGuidedStep.title}</span>
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setFileType(nextGuidedStep.targetType)}
+                        >
+                          Подготовить режим для шага
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Mode: Auto vs Manual */}
                   <div className="grid grid-cols-2 gap-3">
                     <button
@@ -445,7 +919,7 @@ export default function UploadsPage() {
                         <Zap className="h-4 w-4 text-primary" />
                         <span className="text-sm font-medium text-foreground">Умная загрузка</span>
                       </div>
-                      <p className="text-xs text-muted-foreground">Автоопределение типа и маппинг колонок</p>
+                      <p className="text-xs text-muted-foreground">Авторазбор всех листов и раскладка по разделам</p>
                     </button>
                     <button
                       onClick={() => setFileType(fileType === 'auto' ? 'transactions' : fileType)}
@@ -520,6 +994,63 @@ export default function UploadsPage() {
                       />
                     </label>
                   </div>
+
+                  {availableSheets.length > 1 && (
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground">Листы Excel</label>
+                      {fileType === 'auto' ? (
+                        <div className="chrona-muted-surface">
+                          <p className="text-xs text-muted-foreground">
+                            Умный режим обрабатывает <span className="font-medium text-foreground">все листы по смыслу</span>:
+                            Консультации → лиды, ПРОДАЖИ → сделки и счета, <span className="font-medium text-foreground">СВОД / бюджет / итоги</span> → расходы и другие агрегаты (в т.ч. широкая таблица по месяцам → marketing spend для маркетинга и дашборда), без принудительного «всё в маркетинг».
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Листов в файле: <span className="font-medium text-foreground">{availableSheets.length}</span>
+                          </p>
+                        </div>
+                      ) : (
+                        <Select
+                          value={selectedSheet}
+                          onValueChange={(value) => {
+                            setSelectedSheet(value);
+                            setSheetTypeSuggestion(suggestFileTypeBySheetName(value));
+                          }}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Выберите лист для импорта" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableSheets.map((sheet) => (
+                              <SelectItem key={sheet} value={sheet}>
+                                {sheet}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Ручной режим: загрузка из выбранного листа. Умный режим: загрузка со всех листов.
+                      </p>
+                      {sheetTypeSuggestion && (
+                        <div className="chrona-muted-surface">
+                          <p className="text-xs text-muted-foreground">
+                            Рекомендация для листа: <span className="font-medium text-foreground">{FILE_TYPE_CONFIG[sheetTypeSuggestion].label}</span>
+                          </p>
+                          {fileType !== 'auto' && fileType !== sheetTypeSuggestion && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="mt-2 text-xs"
+                              onClick={() => setFileType(sheetTypeSuggestion)}
+                            >
+                              Применить рекомендацию
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Actions */}
                   {selectedFile && (
@@ -774,10 +1305,47 @@ export default function UploadsPage() {
                       <div className="text-2xl font-bold mt-2">{result.errors}</div>
                     </div>
                   </div>
+
+                  {postImportChecklist && (
+                    <div className="chrona-muted-surface mb-5">
+                      <p className="text-sm font-semibold text-foreground mb-3">Чеклист после импорта</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <Badge variant="outline">Лиды: {postImportChecklist.hasLeads ? 'есть' : 'нет'}</Badge>
+                        <Badge variant="outline">Сделки: {postImportChecklist.hasDeals ? 'есть' : 'нет'}</Badge>
+                        <Badge variant="outline">Счета: {postImportChecklist.hasInvoices ? 'есть' : 'нет'}</Badge>
+                        <Badge variant="outline">Оплаты: {postImportChecklist.hasPayments ? 'есть' : 'нет'}</Badge>
+                        <Badge variant="outline">Источники: {postImportChecklist.hasChannels ? 'есть' : 'нет'}</Badge>
+                        <Badge variant="outline">Расходы: {postImportChecklist.hasSpend ? 'есть' : 'нет'}</Badge>
+                        <Badge variant="outline">Контент: {postImportChecklist.hasContent ? 'есть' : 'нет'}</Badge>
+                        <Badge variant="outline">Связка до денег: {postImportChecklist.linkageCoveragePercent}%</Badge>
+                      </div>
+                      <div className="mt-3 space-y-1">
+                        {postImportChecklist.actions.slice(0, 3).map((action, idx) => (
+                          <p key={idx} className="text-xs text-muted-foreground">- {action}</p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex flex-col sm:flex-row gap-2 mb-5">
+                    <Button variant="outline" onClick={() => navigate('/dashboard')} className="flex-1">
+                      Дашборд
+                    </Button>
+                    <Button variant="outline" onClick={() => navigate('/marketing')} className="flex-1">
+                      Маркетинг
+                    </Button>
+                    <Button variant="outline" onClick={() => navigate('/sales-cash')} className="flex-1">
+                      Деньги / Sales
+                    </Button>
+                    <Button variant="outline" onClick={() => navigate('/marketing/data')} className="flex-1">
+                      Данные маркетинга
+                    </Button>
+                  </div>
+
                   <div className="flex gap-3">
                     <Button variant="outline" onClick={resetForm}>Загрузить ещё</Button>
                     <Button onClick={() => navigate('/dashboard')} className="bg-primary hover:bg-primary/90">
-                      К дашборду
+                      Готово
                       <ArrowRight className="h-4 w-4 ml-2" />
                     </Button>
                   </div>

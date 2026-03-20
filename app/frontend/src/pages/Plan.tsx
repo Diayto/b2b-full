@@ -49,11 +49,16 @@ export default function PlanPage() {
   return (
     <AppLayout>
       <div className="chrona-page">
-        <div>
-          <h1 className="rct-page-title">План на следующий месяц</h1>
-          <p className="rct-body-micro mt-1">
-            Прогноз и план действий за период {plan.period}
-          </p>
+        <div className="chrona-tier-1">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1 className="rct-page-title">Strategic Plan</h1>
+              <p className="rct-body-micro mt-1">
+                Прогноз и план действий за период {plan.period}
+              </p>
+            </div>
+            <span className="chrona-topbar-chip">Planning Surface</span>
+          </div>
         </div>
 
         {/* Forecast KPIs */}

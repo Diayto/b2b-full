@@ -1,8 +1,15 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   getSession,
   getMarketingSpend,
@@ -17,9 +24,11 @@ import {
 import { formatKZT } from '@/lib/metrics';
 import {
   calculateRevenueControlTowerAnalytics,
+  computeMarketingPeriodReview,
   computeSourcePerformance,
   computeContentPerformance,
   computeSystemCompleteness,
+  rollingRangeDays,
 } from '@/lib/analytics';
 
 function formatMonthLabel(month: string): string {
@@ -60,6 +69,22 @@ export default function MarketingReports() {
   const payments = getPayments(companyId);
   const channelCampaigns = getChannelCampaigns(companyId);
   const contentMetrics = getContentMetrics(companyId);
+
+  const [periodDays, setPeriodDays] = useState<(typeof PERIOD_OPTIONS)[number]>(30);
+
+  const periodReview = useMemo(() => {
+    const dateRange = rollingRangeDays(periodDays);
+    return computeMarketingPeriodReview({
+      dateRange,
+      payments,
+      marketingSpend,
+      leads,
+      deals,
+      invoices,
+      channelCampaigns,
+      contentMetrics,
+    });
+  }, [periodDays, payments, marketingSpend, leads, deals, invoices, channelCampaigns, contentMetrics]);
 
   const analytics = useMemo(
     () =>
@@ -129,24 +154,27 @@ export default function MarketingReports() {
 
   return (
     <div className="chrona-page">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h2 className="rct-page-title">Отчёты маркетинга</h2>
-          <p className="rct-body-micro text-muted-foreground mt-1">
-            Отчётный слой: что в маркетинге работает, что слабо и чему можно доверять.
-          </p>
-        </div>
+      <div className="chrona-tier-1">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h2 className="rct-page-title">Marketing Reports</h2>
+            <p className="rct-body-micro text-muted-foreground mt-1">
+              Отчётный слой: что в маркетинге работает, что слабо и чему можно доверять.
+            </p>
+          </div>
 
-        <div className="flex flex-col sm:flex-row gap-3">
-          <Button
-            variant="outline"
-            onClick={() => navigate('/marketing/data')}
-          >
-            Открыть данные
-          </Button>
-          <Button onClick={() => navigate('/uploads')}>
-            Перейти в Загрузки
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <span className="chrona-topbar-chip">Review Layer</span>
+            <Button
+              variant="outline"
+              onClick={() => navigate('/marketing/data')}
+            >
+              Открыть данные
+            </Button>
+            <Button onClick={() => navigate('/uploads')}>
+              Перейти в Загрузки
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -170,6 +198,91 @@ export default function MarketingReports() {
         </Card>
       ) : (
         <>
+          <Card className="chrona-surface">
+            <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="space-y-1">
+                <CardTitle>Обзор периода</CardTitle>
+                <CardDescription>
+                  Текущее окно: {periodReview.range.from} — {periodReview.range.to}. Сравнение с предыдущим таким же
+                  периодом: {periodReview.previousRange.from} — {periodReview.previousRange.to}.
+                </CardDescription>
+              </div>
+              <div className="w-full sm:w-[200px]">
+                <p className="text-xs text-muted-foreground mb-1.5">Окно</p>
+                <Select
+                  value={String(periodDays)}
+                  onValueChange={(v) => setPeriodDays(Number(v) as (typeof PERIOD_OPTIONS)[number])}
+                >
+                  <SelectTrigger aria-label="Длина периода для обзора">
+                    <SelectValue placeholder="Период" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PERIOD_OPTIONS.map((d) => (
+                      <SelectItem key={d} value={String(d)}>
+                        Последние {d} дн.
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                <div className="chrona-muted-surface rounded-lg p-4">
+                  <p className="text-xs text-muted-foreground">Оплачено</p>
+                  <p className="mt-1 text-lg font-semibold text-foreground">{formatKZT(periodReview.current.paidRevenue)}</p>
+                  <p className="text-xs text-muted-foreground mt-1">было {formatKZT(periodReview.previous.paidRevenue)}</p>
+                  <p className={`text-sm font-medium mt-2 ${deltaClassForGoodMetric(periodReview.deltas.paidRevenuePct)}`}>
+                    {formatDeltaPct(periodReview.deltas.paidRevenuePct)}
+                  </p>
+                </div>
+                <div className="chrona-muted-surface rounded-lg p-4">
+                  <p className="text-xs text-muted-foreground">Маркетинг spend (по месяцам в окне)</p>
+                  <p className="mt-1 text-lg font-semibold text-foreground">{formatKZT(periodReview.current.marketingSpend)}</p>
+                  <p className="text-xs text-muted-foreground mt-1">было {formatKZT(periodReview.previous.marketingSpend)}</p>
+                  <p className={`text-sm font-medium mt-2 ${deltaClassForSpend(periodReview.deltas.marketingSpendPct)}`}>
+                    {formatDeltaPct(periodReview.deltas.marketingSpendPct)}
+                  </p>
+                </div>
+                <div className="chrona-muted-surface rounded-lg p-4">
+                  <p className="text-xs text-muted-foreground">Лиды (created)</p>
+                  <p className="mt-1 text-lg font-semibold text-foreground">{periodReview.current.leadsCount}</p>
+                  <p className="text-xs text-muted-foreground mt-1">было {periodReview.previous.leadsCount}</p>
+                  <p className={`text-sm font-medium mt-2 ${deltaClassForGoodMetric(periodReview.deltas.leadsPct)}`}>
+                    {formatDeltaPct(periodReview.deltas.leadsPct)}
+                  </p>
+                </div>
+                <div className="chrona-muted-surface rounded-lg p-4">
+                  <p className="text-xs text-muted-foreground">Сделки созданы</p>
+                  <p className="mt-1 text-lg font-semibold text-foreground">{periodReview.current.dealsCreatedCount}</p>
+                  <p className="text-xs text-muted-foreground mt-1">было {periodReview.previous.dealsCreatedCount}</p>
+                  <p className={`text-sm font-medium mt-2 ${deltaClassForGoodMetric(periodReview.deltas.dealsCreatedPct)}`}>
+                    {formatDeltaPct(periodReview.deltas.dealsCreatedPct)}
+                  </p>
+                </div>
+                <div className="chrona-muted-surface rounded-lg p-4 sm:col-span-2 lg:col-span-1 xl:col-span-1">
+                  <p className="text-xs text-muted-foreground">Выиграно (won)</p>
+                  <p className="mt-1 text-lg font-semibold text-foreground">{periodReview.current.wonDealsCount}</p>
+                  <p className="text-xs text-muted-foreground mt-1">было {periodReview.previous.wonDealsCount}</p>
+                  <p className={`text-sm font-medium mt-2 ${deltaClassForGoodMetric(periodReview.deltas.wonDealsPct)}`}>
+                    {formatDeltaPct(periodReview.deltas.wonDealsPct)}
+                  </p>
+                </div>
+              </div>
+
+              {periodReview.narrativeBullets.length > 0 ? (
+                <div className="rounded-lg border border-border/60 bg-muted/30 px-4 py-3">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Выводы</p>
+                  <ul className="list-disc pl-5 space-y-1.5 text-sm text-foreground/90">
+                    {periodReview.narrativeBullets.map((b, i) => (
+                      <li key={i}>{b}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+
           <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
             <Card className="chrona-surface">
               <CardHeader className="pb-2">

@@ -8,6 +8,7 @@ import type {
   Manager,
   PaymentTransaction,
 } from '../types';
+import { normalizeReferenceId } from '../idNormalization';
 
 export type LinkMode = 'exact' | 'fallback';
 
@@ -31,6 +32,8 @@ export function createMapByExternalId<T>(
     const key = keyFn(item);
     if (!key) continue;
     map.set(key, item);
+    const normalized = normalizeReferenceId(key);
+    if (normalized) map.set(normalized, item);
   }
   return map;
 }
@@ -80,6 +83,12 @@ export function buildRevenueControlTowerModel(input: {
     const arr = invoicesByDealExternalId.get(dealExternalId) ?? [];
     arr.push(inv);
     invoicesByDealExternalId.set(dealExternalId, arr);
+    const normalized = normalizeReferenceId(dealExternalId);
+    if (normalized && normalized !== dealExternalId) {
+      const normalizedArr = invoicesByDealExternalId.get(normalized) ?? [];
+      normalizedArr.push(inv);
+      invoicesByDealExternalId.set(normalized, normalizedArr);
+    }
   }
 
   const paymentsByInvoiceExternalId = new Map<string, PaymentTransaction[]>();
@@ -88,6 +97,12 @@ export function buildRevenueControlTowerModel(input: {
     const arr = paymentsByInvoiceExternalId.get(p.invoiceExternalId) ?? [];
     arr.push(p);
     paymentsByInvoiceExternalId.set(p.invoiceExternalId, arr);
+    const normalized = normalizeReferenceId(p.invoiceExternalId);
+    if (normalized && normalized !== p.invoiceExternalId) {
+      const normalizedArr = paymentsByInvoiceExternalId.get(normalized) ?? [];
+      normalizedArr.push(p);
+      paymentsByInvoiceExternalId.set(normalized, normalizedArr);
+    }
   }
 
   const customersByExternalId = createMapByExternalId(input.customers, (c) => c.customerExternalId);
@@ -115,7 +130,11 @@ export function resolvePaymentAttribution(model: RevenueControlTowerModel, payme
     };
   }
 
-  const invoice = model.invoiceByInvoiceExternalId.get(payment.invoiceExternalId);
+  const invoice =
+    model.invoiceByInvoiceExternalId.get(payment.invoiceExternalId) ??
+    (normalizeReferenceId(payment.invoiceExternalId)
+      ? model.invoiceByInvoiceExternalId.get(normalizeReferenceId(payment.invoiceExternalId) as string)
+      : undefined);
   if (!invoice) {
     return {
       mode: 'fallback',
@@ -130,7 +149,11 @@ export function resolvePaymentAttribution(model: RevenueControlTowerModel, payme
     };
   }
 
-  const deal = model.dealByExternalId.get(invoice.dealExternalId);
+  const deal =
+    model.dealByExternalId.get(invoice.dealExternalId) ??
+    (normalizeReferenceId(invoice.dealExternalId)
+      ? model.dealByExternalId.get(normalizeReferenceId(invoice.dealExternalId) as string)
+      : undefined);
   if (!deal) {
     return {
       mode: 'fallback',
@@ -145,7 +168,11 @@ export function resolvePaymentAttribution(model: RevenueControlTowerModel, payme
     };
   }
 
-  const lead = model.leadByExternalId.get(deal.leadExternalId);
+  const lead =
+    model.leadByExternalId.get(deal.leadExternalId) ??
+    (normalizeReferenceId(deal.leadExternalId)
+      ? model.leadByExternalId.get(normalizeReferenceId(deal.leadExternalId) as string)
+      : undefined);
   if (!lead) {
     return {
       mode: 'fallback',

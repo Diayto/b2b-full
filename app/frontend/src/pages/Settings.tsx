@@ -119,9 +119,14 @@ export default function SettingsPage() {
   return (
     <AppLayout>
       <div className="chrona-page max-w-[900px]">
-        <div>
-          <h1 className="rct-page-title">Настройки</h1>
-          <p className="rct-body-micro mt-1">Управление аккаунтом и компанией</p>
+        <div className="chrona-tier-1">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1 className="rct-page-title">System Settings</h1>
+              <p className="rct-body-micro mt-1">Управление аккаунтом, данными и уведомлениями</p>
+            </div>
+            <span className="chrona-topbar-chip">Control Center</span>
+          </div>
         </div>
 
         {/* Company Info */}

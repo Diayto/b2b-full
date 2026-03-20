@@ -13,8 +13,7 @@ import { toast } from 'sonner';
 import { login, register } from '@/lib/store';
 import { Building2, Lock, Mail, User, BarChart3, Shield, Zap, TrendingUp } from 'lucide-react';
 import ThemeToggle from '@/components/ThemeToggle';
-
-const LOGO_URL = 'https://mgx-backend-cdn.metadl.com/generate/images/977836/2026-02-19/f1c5daa3-2ffc-4a82-83e6-9033cda8f303.png';
+import ChronaMark from '@/components/ChronaMark';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -76,9 +75,9 @@ export default function LoginPage() {
 
         <div className="relative z-10 text-white max-w-sm">
           <div className="flex items-center gap-3 mb-10">
-            <img src={LOGO_URL} alt="BizPulse" className="h-11 w-11 rounded-xl shadow-lg" />
+            <ChronaMark className="h-11 w-11 rounded-xl shadow-lg" />
             <div>
-              <span className="text-xl font-bold tracking-tight">BizPulse</span>
+              <span className="text-xl font-bold tracking-tight">Chrona</span>
               <p className="text-xs text-white/50 tracking-wide">Revenue Control Tower</p>
             </div>
           </div>
@@ -105,7 +104,7 @@ export default function LoginPage() {
           </div>
 
           <div className="mt-12 pt-6 border-t border-white/10">
-            <p className="text-xs text-white/30">BizPulse KZ · 2026</p>
+            <p className="text-xs text-white/30">Chrona · 2026</p>
           </div>
         </div>
       </div>
@@ -114,9 +113,9 @@ export default function LoginPage() {
       <div className="flex-1 flex flex-col min-h-screen">
         <div className="flex items-center justify-between p-4 lg:p-6">
           <div className="lg:hidden flex items-center gap-2.5">
-            <img src={LOGO_URL} alt="BizPulse" className="h-9 w-9 rounded-xl" />
+            <ChronaMark compact className="h-9 w-9 rounded-xl" />
             <div>
-              <span className="text-base font-bold text-foreground">BizPulse</span>
+              <span className="text-base font-bold text-foreground">Chrona</span>
               <p className="text-[10px] text-muted-foreground leading-tight">Revenue Control Tower</p>
             </div>
           </div>
@@ -187,7 +186,7 @@ export default function LoginPage() {
                 <Card className="border-border bg-card shadow-sm">
                   <CardHeader className="pb-4">
                     <CardTitle className="text-lg text-card-foreground">Создать аккаунт</CardTitle>
-                    <CardDescription>Зарегистрируйте компанию в BizPulse</CardDescription>
+                    <CardDescription>Зарегистрируйте компанию в Chrona</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <form onSubmit={handleRegister} className="space-y-4">
@@ -260,7 +259,7 @@ export default function LoginPage() {
             </Tabs>
 
             <p className="text-center text-xs text-muted-foreground mt-8">
-              BizPulse KZ © 2026
+              Chrona © 2026
             </p>
           </div>
         </div>

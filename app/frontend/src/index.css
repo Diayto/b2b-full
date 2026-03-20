@@ -2,6 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes chronaFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes chronaSoftIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /* ===== Revenue Control Tower — Premium design tokens ===== */
 @layer base {
   :root {
@@ -213,6 +229,169 @@
   }
   .chrona-table tbody tr {
     @apply border-b border-border/30 transition-colors hover:bg-muted/20;
+  }
+
+  /* ===== Chrona app shell reset ===== */
+  .chrona-app-shell {
+    @apply h-screen flex;
+    background:
+      radial-gradient(1200px 600px at 18% -10%, hsl(var(--primary) / 0.22), transparent 55%),
+      radial-gradient(900px 420px at 90% 0%, hsl(var(--primary) / 0.12), transparent 60%),
+      hsl(var(--background));
+  }
+  .chrona-sidebar {
+    @apply backdrop-blur-xl border-r;
+    background: linear-gradient(165deg, hsl(254 30% 12% / 0.95), hsl(240 18% 10% / 0.92));
+    border-color: hsl(var(--border) / 0.7);
+  }
+  .chrona-sidebar-brand {
+    @apply text-white tracking-tight font-semibold;
+  }
+  .chrona-sidebar-meta {
+    @apply text-[11px] uppercase tracking-[0.16em];
+    color: hsl(262 72% 82%);
+  }
+  .chrona-nav-item {
+    @apply flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all;
+    color: hsl(0 0% 88% / 0.88);
+  }
+  .chrona-nav-item:hover {
+    background: hsl(0 0% 100% / 0.06);
+    color: white;
+  }
+  .chrona-nav-item-active {
+    background: linear-gradient(135deg, hsl(var(--primary) / 0.9), hsl(275 70% 68% / 0.85));
+    color: white;
+    box-shadow: 0 10px 26px -14px hsl(var(--primary) / 0.9);
+  }
+  .chrona-canvas {
+    @apply flex-1 min-w-0 flex flex-col;
+  }
+  .chrona-topbar {
+    @apply sticky top-0 z-20 border-b backdrop-blur-xl;
+    background: hsl(var(--background) / 0.74);
+    border-color: hsl(var(--border) / 0.62);
+  }
+  .chrona-topbar-chip {
+    @apply inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium;
+    border-color: hsl(var(--primary) / 0.35);
+    color: hsl(var(--primary));
+    background: hsl(var(--primary) / 0.1);
+  }
+  .chrona-workspace {
+    @apply flex-1 overflow-auto p-4 lg:p-6;
+  }
+  .chrona-tier-1 {
+    @apply rounded-2xl border p-5;
+    border-color: hsl(var(--primary) / 0.3);
+    background:
+      linear-gradient(160deg, hsl(var(--card)) 0%, hsl(var(--card)) 70%),
+      radial-gradient(640px 300px at 10% 0%, hsl(var(--primary) / 0.16), transparent 60%);
+    box-shadow:
+      inset 0 1px 0 hsl(0 0% 100% / 0.1),
+      0 20px 45px -30px hsl(var(--primary) / 0.45);
+    transition: transform 260ms ease, box-shadow 260ms ease, border-color 220ms ease;
+  }
+  .chrona-tier-2 {
+    @apply rounded-xl border p-4;
+    border-color: hsl(var(--border) / 0.8);
+    background: hsl(var(--card) / 0.92);
+    box-shadow: 0 10px 24px -20px rgb(0 0 0 / 0.45);
+    transition: transform 220ms ease, box-shadow 220ms ease, border-color 200ms ease, background-color 200ms ease;
+  }
+  .chrona-tier-3 {
+    @apply rounded-lg border p-3;
+    border-color: hsl(var(--border) / 0.7);
+    background: hsl(var(--muted) / 0.45);
+    transition: transform 200ms ease, border-color 180ms ease, background-color 180ms ease;
+  }
+  .chrona-tier-2:hover {
+    transform: translateY(-2px);
+    border-color: hsl(var(--primary) / 0.28);
+    box-shadow: 0 24px 38px -30px hsl(var(--primary) / 0.5);
+  }
+  .chrona-tier-3:hover {
+    border-color: hsl(var(--primary) / 0.2);
+    background: hsl(var(--muted) / 0.62);
+  }
+  .chrona-hero-spotlight {
+    position: relative;
+    overflow: hidden;
+  }
+  .chrona-hero-spotlight::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(650px 220px at 0% 0%, hsl(var(--primary) / 0.2), transparent 58%),
+      radial-gradient(500px 180px at 100% 0%, hsl(var(--primary) / 0.12), transparent 60%);
+    pointer-events: none;
+  }
+  .chrona-hero-spotlight > * {
+    position: relative;
+    z-index: 1;
+  }
+  .chrona-interactive-control {
+    transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background-color 180ms ease;
+  }
+  .chrona-interactive-control:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px -20px hsl(var(--primary) / 0.7);
+  }
+  .chrona-interactive-control:active {
+    transform: translateY(0);
+    box-shadow: 0 4px 14px -12px hsl(var(--primary) / 0.65);
+  }
+  .chrona-interactive-control:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 1px hsl(var(--primary) / 0.55),
+      0 0 0 4px hsl(var(--primary) / 0.16);
+  }
+  .chrona-reveal-hero {
+    animation: chronaFadeUp 340ms cubic-bezier(0.2, 0.65, 0.2, 1) both;
+  }
+  .chrona-reveal-support {
+    animation: chronaFadeUp 300ms cubic-bezier(0.2, 0.65, 0.2, 1) both;
+    animation-delay: 45ms;
+  }
+  .chrona-reveal-detail {
+    animation: chronaFadeUp 260ms cubic-bezier(0.2, 0.65, 0.2, 1) both;
+    animation-delay: 80ms;
+  }
+  .chrona-kpi-card {
+    animation: chronaFadeUp 320ms cubic-bezier(0.2, 0.65, 0.2, 1) both;
+  }
+  .chrona-collapsible-trigger {
+    transition: background-color 190ms ease, transform 190ms ease;
+  }
+  .chrona-collapsible-trigger:hover {
+    transform: translateY(-1px);
+  }
+  .chrona-collapsible-content {
+    overflow: hidden;
+  }
+  .chrona-collapsible-content[data-state='open'] {
+    animation: chronaFadeUp 260ms cubic-bezier(0.2, 0.65, 0.2, 1);
+  }
+  .chrona-collapsible-content[data-state='closed'] {
+    animation: chronaSoftIn 180ms ease reverse;
+  }
+  .chrona-chart-frame {
+    @apply rounded-xl border p-2;
+    border-color: hsl(var(--primary) / 0.18);
+    background:
+      linear-gradient(180deg, hsl(var(--card) / 0.96), hsl(var(--card) / 0.88)),
+      radial-gradient(520px 180px at 50% -20%, hsl(var(--primary) / 0.12), transparent 60%);
+    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.08);
+    animation: chronaSoftIn 300ms ease both;
+  }
+  .chrona-table tbody tr {
+    position: relative;
+  }
+  .chrona-table tbody tr:hover {
+    box-shadow: inset 2px 0 0 hsl(var(--primary) / 0.5);
+    background: hsl(var(--muted) / 0.38);
   }
 }
 
