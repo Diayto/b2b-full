@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
 import { Badge } from '@/components/ui/badge';
 import { getSession, getTransactions, getCustomers, getInvoices, getMarketingSpend, getDocuments } from '@/lib/store';
@@ -26,7 +25,6 @@ const priorityClass: Record<PlanPriority, string> = {
 };
 
 export default function PlanPage() {
-  const navigate = useNavigate();
   const session = getSession();
   const companyId = session?.companyId || '';
 
@@ -40,11 +38,6 @@ export default function PlanPage() {
     () => generateMonthlyBusinessPlan(transactions, customers, invoices, marketingSpend, documents),
     [transactions, customers, invoices, marketingSpend, documents]
   );
-
-  if (!session) {
-    navigate('/');
-    return null;
-  }
 
   return (
     <AppLayout>

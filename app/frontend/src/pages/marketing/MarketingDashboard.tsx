@@ -60,16 +60,12 @@ function severityLabel(severity: string): string {
 export default function MarketingDashboard() {
   const navigate = useNavigate();
   const session = getSession();
+  const companyId = session?.companyId ?? '';
 
-  if (!session) {
-    navigate('/');
-    return null;
-  }
-
-  const marketingSpend = getMarketingSpend(session.companyId);
-  const customers = getCustomers(session.companyId);
-  const invoices = getInvoices(session.companyId);
-  const signals = getSignals(session.companyId)
+  const marketingSpend = getMarketingSpend(companyId);
+  const customers = getCustomers(companyId);
+  const invoices = getInvoices(companyId);
+  const signals = getSignals(companyId)
     .filter((signal) => signal.status === 'open')
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 

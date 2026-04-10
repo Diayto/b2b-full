@@ -3,6 +3,7 @@
 // Simulates multi-tenant backend with localStorage
 // ============================================================
 
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 import type {
   User, Company, Transaction, Customer, Invoice,
   MarketingSpend, Document, Upload, Signal, UserRole,
@@ -48,98 +49,107 @@ const KEYS = {
   documents: 'bp_documents',
   uploads: 'bp_uploads',
   signals: 'bp_signals',
-  session: 'bp_session',
   notificationSettings: 'bp_notification_settings',
   reminderLogs: 'bp_deadline_reminder_logs',
 } as const;
 
+/** Optional prefs not scoped per company — reset with local data clear. */
+const AUX_LOCAL_CLEAR_KEYS = ['bp_content_metrics_read_mode', 'bp_deadline_reminder_last_run'] as const;
+
+/**
+ * Removes BizPulse rows for this company from localStorage (импорты, демо, уведомления в Local).
+ * Не удаляет данные в Supabase (метрики дашборда, профиль) — их нужно чистить в облаке или отдельно.
+ */
+export function clearCompanyLocalStorageData(companyId: string): void {
+  if (!companyId) return;
+
+  const keysWithCompanyId = [
+    KEYS.transactions,
+    KEYS.customers,
+    KEYS.invoices,
+    KEYS.marketingSpend,
+    KEYS.leads,
+    KEYS.deals,
+    KEYS.channelCampaigns,
+    KEYS.managers,
+    KEYS.payments,
+    KEYS.contentMetrics,
+    KEYS.documents,
+    KEYS.uploads,
+    KEYS.signals,
+    KEYS.notificationSettings,
+    KEYS.reminderLogs,
+  ] as const;
+
+  for (const key of keysWithCompanyId) {
+    const all = getItem<{ companyId: string }>(key);
+    setItem(key, all.filter((item) => item.companyId !== companyId));
+  }
+
+  const companies = getItem<Company>(KEYS.companies);
+  setItem(KEYS.companies, companies.filter((c) => c.id !== companyId));
+
+  const users = getItem<User>(KEYS.users);
+  setItem(KEYS.users, users.filter((u) => u.companyId !== companyId));
+
+  for (const k of AUX_LOCAL_CLEAR_KEYS) {
+    localStorage.removeItem(k);
+  }
+}
+
 // ============================================================
-// Auth
+// Auth (Supabase session mirror — synced by AuthProvider)
 // ============================================================
 export interface Session {
   userId: string;
   companyId: string;
   role: UserRole;
+  email?: string;
+  name?: string;
+  /** From auth user_metadata (registration); may be absent for older accounts */
+  companyName?: string;
+}
+
+let authMemory: Session | null = null;
+
+export function syncAuthFromSupabaseUser(user: SupabaseUser | null): void {
+  if (!user) {
+    authMemory = null;
+    return;
+  }
+  const meta = user.user_metadata as Record<string, unknown> | undefined;
+  const nameMeta = meta?.name;
+  const companyMeta = meta?.company_name;
+  authMemory = {
+    userId: user.id,
+    companyId: user.id,
+    role: 'owner',
+    email: user.email ?? undefined,
+    name: typeof nameMeta === 'string' ? nameMeta : undefined,
+    companyName: typeof companyMeta === 'string' ? companyMeta : undefined,
+  };
 }
 
 export function getSession(): Session | null {
-  try {
-    const raw = localStorage.getItem(KEYS.session);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
+  return authMemory;
 }
 
-export function setSession(session: Session): void {
-  localStorage.setItem(KEYS.session, JSON.stringify(session));
-}
-
+/** Clears in-memory auth mirror only; use signOutSupabase() for full logout. */
 export function clearSession(): void {
-  localStorage.removeItem(KEYS.session);
-}
-
-export function register(email: string, password: string, name: string, companyName: string): { user: User; company: Company } {
-  const users = getItem<User & { password: string }>(KEYS.users);
-  if (users.find(u => u.email === email)) {
-    throw new Error('Пользователь с таким email уже существует');
-  }
-
-  const companyId = generateId();
-  const userId = generateId();
-  const now = new Date().toISOString();
-
-  const company: Company = {
-    id: companyId,
-    name: companyName,
-    currency: 'KZT',
-    createdAt: now,
-  };
-
-  const user: User = {
-    id: userId,
-    email,
-    name,
-    companyId,
-    role: 'owner',
-    createdAt: now,
-  };
-
-  const companies = getItem<Company>(KEYS.companies);
-  companies.push(company);
-  setItem(KEYS.companies, companies);
-
-  users.push({ ...user, password });
-  setItem(KEYS.users, users);
-
-  setSession({ userId, companyId, role: 'owner' });
-
-  return { user, company };
-}
-
-export function login(email: string, password: string): User {
-  const users = getItem<User & { password: string }>(KEYS.users);
-  const found = users.find(u => u.email === email && u.password === password);
-  if (!found) {
-    throw new Error('Неверный email или пароль');
-  }
-
-  setSession({ userId: found.id, companyId: found.companyId, role: found.role });
-
-  const { password: _pw, ...user } = found;
-  void _pw;
-  return user;
+  authMemory = null;
 }
 
 export function getCurrentUser(): User | null {
   const session = getSession();
   if (!session) return null;
-  const users = getItem<User & { password: string }>(KEYS.users);
-  const found = users.find(u => u.id === session.userId);
-  if (!found) return null;
-  const { password: _pw, ...user } = found;
-  void _pw;
-  return user;
+  return {
+    id: session.userId,
+    email: session.email ?? '',
+    name: session.name ?? '',
+    companyId: session.companyId,
+    role: session.role,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 export function getCompany(companyId: string): Company | null {

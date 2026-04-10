@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -30,6 +30,14 @@ import {
   computeSystemCompleteness,
   rollingRangeDays,
 } from '@/lib/analytics';
+import {
+  fetchContentMetricsDiagnosticsFromApi,
+  fetchContentMetricsFromApi,
+  getContentMetricsReadMode,
+  type ContentMetricsDiagnostics,
+} from '@/lib/content-metrics-api';
+
+const PERIOD_OPTIONS = [7, 30, 90, 180] as const;
 
 function formatMonthLabel(month: string): string {
   const [year, monthPart] = month.split('-');
@@ -51,16 +59,30 @@ function percentOrDash(value: number): string {
   return Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : '—';
 }
 
+function formatDeltaPct(value: number): string {
+  if (!Number.isFinite(value)) return '—';
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${(value * 100).toFixed(1)}%`;
+}
+
+function deltaClassForGoodMetric(value: number): string {
+  if (!Number.isFinite(value) || value === 0) return 'text-muted-foreground';
+  return value > 0
+    ? 'text-emerald-600 dark:text-emerald-400'
+    : 'text-rose-600 dark:text-rose-400';
+}
+
+function deltaClassForSpend(value: number): string {
+  if (!Number.isFinite(value) || value === 0) return 'text-muted-foreground';
+  return value < 0
+    ? 'text-emerald-600 dark:text-emerald-400'
+    : 'text-rose-600 dark:text-rose-400';
+}
+
 export default function MarketingReports() {
   const navigate = useNavigate();
   const session = getSession();
-
-  if (!session) {
-    navigate('/');
-    return null;
-  }
-
-  const companyId = session.companyId;
+  const companyId = session?.companyId ?? '';
   const marketingSpend = getMarketingSpend(companyId);
   const customers = getCustomers(companyId);
   const invoices = getInvoices(companyId);
@@ -68,9 +90,52 @@ export default function MarketingReports() {
   const deals = getDeals(companyId);
   const payments = getPayments(companyId);
   const channelCampaigns = getChannelCampaigns(companyId);
-  const contentMetrics = getContentMetrics(companyId);
+  const localContentMetrics = getContentMetrics(companyId);
 
   const [periodDays, setPeriodDays] = useState<(typeof PERIOD_OPTIONS)[number]>(30);
+  const [apiContentMetrics, setApiContentMetrics] = useState<ReturnType<typeof getContentMetrics>>([]);
+  const [apiDiagnostics, setApiDiagnostics] = useState<ContentMetricsDiagnostics | null>(null);
+  const [contentMetricsSource, setContentMetricsSource] = useState<'local' | 'api' | 'api_fallback'>('local');
+
+  useEffect(() => {
+    const mode = getContentMetricsReadMode();
+    if (mode !== 'api') {
+      setApiContentMetrics([]);
+      setApiDiagnostics(null);
+      setContentMetricsSource('local');
+      return;
+    }
+
+    const controller = new AbortController();
+    let active = true;
+
+    const load = async () => {
+      try {
+        const [rows, diagnostics] = await Promise.all([
+          fetchContentMetricsFromApi(companyId, controller.signal),
+          fetchContentMetricsDiagnosticsFromApi(companyId, controller.signal),
+        ]);
+        if (!active) return;
+        setApiContentMetrics(rows);
+        setApiDiagnostics(diagnostics);
+        setContentMetricsSource('api');
+      } catch {
+        if (!active) return;
+        setApiContentMetrics([]);
+        setApiDiagnostics(null);
+        setContentMetricsSource('api_fallback');
+      }
+    };
+
+    void load();
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [companyId]);
+
+  const contentMetrics = contentMetricsSource === 'api' ? apiContentMetrics : localContentMetrics;
 
   const periodReview = useMemo(() => {
     const dateRange = rollingRangeDays(periodDays);
@@ -329,6 +394,21 @@ export default function MarketingReports() {
                   {trustLabel}
                 </Badge>
                 <p className="text-xs text-muted-foreground mt-2">Полнота маркетинг-данных: {completeness.overall}%</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Badge variant="outline">
+                    Content Source: {contentMetricsSource === 'api' ? 'API' : contentMetricsSource === 'api_fallback' ? 'Local fallback' : 'Local'}
+                  </Badge>
+                  {apiDiagnostics && (
+                    <>
+                      <Badge variant="outline">
+                        API trust avg: {apiDiagnostics.avgCompletenessScore.toFixed(1)}%
+                      </Badge>
+                      <Badge variant="outline">
+                        Exact/Fallback/Incomplete: {apiDiagnostics.confidenceBreakdown.exact}/{apiDiagnostics.confidenceBreakdown.fallback}/{apiDiagnostics.confidenceBreakdown.incomplete}
+                      </Badge>
+                    </>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </div>

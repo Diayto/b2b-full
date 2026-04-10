@@ -3,7 +3,7 @@
 // 3-layer system: Organic Funnel → Channel Table → Content
 // ============================================================
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -36,7 +36,9 @@ import {
 import { formatKZT } from '@/lib/metrics';
 import type { RevenueControlTowerAnalytics } from '@/lib/analytics/revenueControlTower';
 import RecommendationsCard from '@/components/RecommendationsCard';
-import { buildRecommendations } from '@/lib/recommendations';
+import { insightRowToRecommendationItems, type RecommendationItem } from '@/lib/recommendations';
+import { isSupabaseConfigured } from '@/lib/supabaseClient';
+import { fetchLatestInsight } from '@/lib/supabaseInsights';
 import { AlertTriangle, ArrowRight } from 'lucide-react';
 
 function percentFromRatio(r: number): string {
@@ -160,14 +162,29 @@ function FunnelStep({
 export default function MarketingToRevenueDashboard() {
   const navigate = useNavigate();
   const session = getSession();
-
-  if (!session) {
-    navigate('/');
-    return null;
-  }
-
-  const companyId = session.companyId;
+  const companyId = session?.companyId ?? '';
   const [dateRange, setDateRange] = useState<'30d' | '90d' | '180d' | 'all'>('180d');
+  const [recommendationItems, setRecommendationItems] = useState<RecommendationItem[]>([]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured()) {
+      setRecommendationItems([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const row = await fetchLatestInsight();
+        if (cancelled) return;
+        setRecommendationItems(insightRowToRecommendationItems(row));
+      } catch {
+        if (!cancelled) setRecommendationItems([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId]);
 
   const channelCampaigns = useMemo(() => getChannelCampaigns(companyId), [companyId]);
   const leads = useMemo(() => getLeads(companyId), [companyId]);
@@ -273,18 +290,6 @@ export default function MarketingToRevenueDashboard() {
     for (const cm of contentInRange) m.set(cm.contentId, cm);
     return m;
   }, [contentInRange]);
-
-  const recommendationItems = useMemo(
-    () =>
-      buildRecommendations({
-        surface: 'marketing',
-        analytics,
-        channelNameById,
-        formatMoney: formatKZT,
-        maxItems: 4,
-      }),
-    [analytics, channelNameById]
-  );
 
   const handleSeedDemo = () => {
     if (!companyId) return;

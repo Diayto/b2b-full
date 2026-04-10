@@ -3,7 +3,6 @@
 // ============================================================
 
 import { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,7 +21,6 @@ import { formatKZT } from '@/lib/metrics';
 import type { Document } from '@/lib/types';
 
 export default function DocumentsPage() {
-  const navigate = useNavigate();
   const session = getSession();
   const companyId = session?.companyId || '';
 
@@ -141,11 +139,6 @@ export default function DocumentsPage() {
     if (!endDate) return false;
     return new Date(endDate) < new Date();
   };
-
-  if (!session) {
-    navigate('/');
-    return null;
-  }
 
   return (
     <AppLayout>

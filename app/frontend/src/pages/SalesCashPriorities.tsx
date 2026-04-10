@@ -3,11 +3,12 @@
 // ============================================================
 
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
 import ControlTowerKpiCard from '@/components/controltower/ControlTowerKpiCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import MetricHelpIcon from '@/components/controltower/MetricHelpIcon';
 import SectionHeader from '@/components/controltower/SectionHeader';
@@ -15,7 +16,9 @@ import RankedListItem from '@/components/controltower/RankedListItem';
 import EmptyStateCard from '@/components/controltower/EmptyStateCard';
 import { TrustBadge } from '@/components/controltower';
 import RecommendationsCard from '@/components/RecommendationsCard';
-import { buildRecommendations } from '@/lib/recommendations';
+import { insightRowToRecommendationItems, type RecommendationItem } from '@/lib/recommendations';
+import { isSupabaseConfigured } from '@/lib/supabaseClient';
+import { fetchLatestInsight } from '@/lib/supabaseInsights';
 import { cn } from '@/lib/utils';
 import {
   AlertTriangle,
@@ -23,6 +26,7 @@ import {
   Clock,
   DollarSign,
   LayoutGrid,
+  Link2,
   XCircle,
 } from 'lucide-react';
 import type { DateRange } from '@/lib/types';
@@ -30,7 +34,6 @@ import {
   calculateRevenueControlTowerAnalytics,
   buildRevenueControlTowerModel,
   computeLostDealsAnalysis,
-  computeLinkageDiagnostics,
   computeSystemCompleteness,
   LOST_REASON_LABELS,
   STALLED_REASON_LABELS,
@@ -78,11 +81,28 @@ export default function SalesCashPrioritiesPage() {
 
   const [dateRange, setDateRange] = useState<'30d' | '90d' | '180d' | 'all'>('180d');
 
-  useEffect(() => {
-    if (!session) navigate('/');
-  }, [session, navigate]);
-
   const companyId = session?.companyId || '';
+  const [recommendationItems, setRecommendationItems] = useState<RecommendationItem[]>([]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured()) {
+      setRecommendationItems([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const row = await fetchLatestInsight();
+        if (cancelled) return;
+        setRecommendationItems(insightRowToRecommendationItems(row));
+      } catch {
+        if (!cancelled) setRecommendationItems([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId]);
 
   const customers = useMemo(() => getCustomers(companyId), [companyId]);
   const invoices = useMemo(() => getInvoices(companyId), [companyId]);
@@ -157,29 +177,11 @@ export default function SalesCashPrioritiesPage() {
     marketingSpend.length > 0 ||
     uploads.length > 0;
 
-  const channelNameById = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const cc of channelCampaigns) m.set(cc.channelCampaignExternalId, cc.name);
-    return m;
-  }, [channelCampaigns]);
-
   const managerNameById = useMemo(() => {
     const m = new Map<string, string>();
     for (const mg of managers) m.set(mg.managerExternalId, mg.name);
     return m;
   }, [managers]);
-
-  const recommendationItems = useMemo(
-    () =>
-      buildRecommendations({
-        surface: 'sales_cash',
-        analytics,
-        channelNameById,
-        formatMoney: formatKZT,
-        maxItems: 3,
-      }),
-    [analytics, channelNameById]
-  );
 
   // --- Model ---
   const model = useMemo(
@@ -619,17 +621,6 @@ export default function SalesCashPrioritiesPage() {
     completeness.areas.some((a) => a.area === 'payment_linkage' && a.score < 80) ||
     completeness.areas.some((a) => a.area === 'sales_funnel' && a.score < 80);
 
-  const linkageDiagnostics = useMemo(
-    () =>
-      computeLinkageDiagnostics({
-        leads,
-        deals,
-        invoices,
-        payments,
-      }),
-    [leads, deals, invoices, payments],
-  );
-
   const handleSeedDemo = () => {
     if (!companyId) return;
     seedDemoData(companyId);
@@ -640,35 +631,42 @@ export default function SalesCashPrioritiesPage() {
 
   return (
     <AppLayout>
-      <div className="chrona-page">
+      <div className="rct-page p-4 lg:p-6 space-y-6 max-w-[1400px] mx-auto">
         {/* Header */}
-        <div className="chrona-tier-1 chrona-reveal-hero">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div className="min-w-0">
-              <h1 className="rct-page-title">Money Leakage Workspace</h1>
-              <p className="rct-body-micro text-muted-foreground mt-1">
-                Где выручка застревает и какие действия вернут деньги быстрее.
-              </p>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-              <span className="chrona-topbar-chip">Execution Focus</span>
-              <Select value={dateRange} onValueChange={(v) => setDateRange(v as typeof dateRange)}>
-                <SelectTrigger className="w-[170px] chrona-interactive-control">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="30d">30 дней</SelectItem>
-                  <SelectItem value="90d">90 дней</SelectItem>
-                  <SelectItem value="180d">180 дней</SelectItem>
-                  <SelectItem value="all">Всё время</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Button className="chrona-interactive-control" variant="outline" onClick={() => navigate('/uploads')}>Загрузки</Button>
-              <Button className="chrona-interactive-control" variant="outline" onClick={() => navigate('/marketing')}>Marketing</Button>
-            </div>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <h1 className="rct-page-title">Где застряли деньги</h1>
+            <p className="rct-body-micro text-muted-foreground mt-1">
+              Где выручка "застревает" и какие действия нужны в первую очередь.
+            </p>
           </div>
+
+          <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+            <Select value={dateRange} onValueChange={(v) => setDateRange(v as typeof dateRange)}>
+              <SelectTrigger className="w-[170px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="30d">30 дней</SelectItem>
+                <SelectItem value="90d">90 дней</SelectItem>
+                <SelectItem value="180d">180 дней</SelectItem>
+                <SelectItem value="all">Всё время</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Button variant="outline" onClick={() => navigate('/uploads')}>Данные</Button>
+            <Button variant="outline" onClick={() => navigate('/marketing')}>Маркетинг</Button>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border/80 bg-muted/30 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm">
+          <span className="text-muted-foreground flex items-center gap-2">
+            <Link2 className="h-4 w-4 shrink-0 text-primary" />
+            Этот экран — денежные последствия той же цепочки. Главный приоритет периода смотрите на дашборде.
+          </span>
+          <Link to="/dashboard" className="text-primary font-medium hover:underline shrink-0">
+            Главный экран →
+          </Link>
         </div>
 
         {!hasAnyData ? (
@@ -722,18 +720,16 @@ export default function SalesCashPrioritiesPage() {
             </div>
 
             {/* Lower Funnel + Leakage */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 chrona-reveal-support">
-              <div className="chrona-surface">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="chrona-section-title">Нижняя воронка: Сделка → Оплата</h3>
-                    <p className="text-sm text-muted-foreground mt-1">Здоровье цепочки перед оплатой</p>
-                  </div>
-                </div>
-                <div className="mt-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card className="rct-card">
+                <CardHeader>
+                  <CardTitle className="text-base font-semibold text-foreground">Нижняя воронка: Сделка → Оплата</CardTitle>
+                  <CardDescription>Где теряются сделки между выигрышем и поступлением денег</CardDescription>
+                </CardHeader>
+                <CardContent>
                   {lowerFunnelStageData.won > 0 && lowerFunnelStageData.invoiced < lowerFunnelStageData.won * 0.5 && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400 mb-3 chrona-muted-surface">
-                      Частичные данные: часть выигранных сделок не связана со счетами. Добавьте в загрузку связку «сделка ↔ счёт», чтобы воронка стала полной.
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mb-3 rct-card-inset p-2.5">
+                      Частичные данные: часть выигранных сделок не связана со счетами. Загрузите счета с dealExternalId для полной воронки.
                     </p>
                   )}
                   <div className="space-y-3">
@@ -746,7 +742,7 @@ export default function SalesCashPrioritiesPage() {
                       const prev = i > 0 ? arr[i - 1].val : s.val;
                       const rate = prev > 0 ? ((s.val / prev) * 100).toFixed(1) : '—';
                       return (
-                        <div key={s.label} className="flex items-center justify-between gap-3 chrona-muted-surface">
+                        <div key={s.label} className="flex items-center justify-between gap-3 rct-card-inset p-3">
                           <span className="text-sm font-medium text-foreground">{s.label}</span>
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-bold">{s.val}</span>
@@ -761,17 +757,17 @@ export default function SalesCashPrioritiesPage() {
                       Частичные данные: связь счёт→сделка или оплата→сделка неполная. Показатели могут быть приблизительными.
                     </p>
                   )}
-                </div>
-              </div>
-              <div className="chrona-surface border-l-[3px] border-l-amber-400/70">
-                <div className="flex items-start justify-between gap-3">
-                  <h3 className="chrona-section-title flex items-center gap-2">
+                </CardContent>
+              </Card>
+              <Card className="rct-card border-l-[3px] border-l-amber-400/70">
+                <CardHeader>
+                  <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4 text-amber-500" />
                     Утечки в воронке
-                  </h3>
-                </div>
-                <p className="text-sm text-muted-foreground mt-1">Куда уходит выручка в выбранном периоде</p>
-                <div className="mt-4">
+                  </CardTitle>
+                  <CardDescription>Где теряется потенциальная выручка</CardDescription>
+                </CardHeader>
+                <CardContent>
                   {leakage.totalItems === 0 ? (
                     <p className="text-sm text-muted-foreground">Утечек не обнаружено — воронка в норме.</p>
                   ) : (
@@ -779,149 +775,85 @@ export default function SalesCashPrioritiesPage() {
                       <p className="text-xs text-muted-foreground">
                         Всего: {leakage.totalItems} точек · ~{formatKZT(leakage.totalEstimatedLoss)} потерь
                       </p>
-                      {(() => {
-                        const top = leakage.byCategory.slice(0, 3);
-                        const maxLoss = Math.max(1, ...top.map((x) => x.estimatedLoss));
-                        return (
-                          <div className="space-y-2">
-                            {top.map((c) => {
-                              const w = Math.round((c.estimatedLoss / maxLoss) * 100);
-                              return (
-                                <div key={c.category} className="chrona-muted-surface">
-                                  <div className="flex items-center justify-between gap-3">
-                                    <span className="text-xs font-medium text-foreground">{c.label}</span>
-                                    <div className="flex items-center gap-2">
-                                      <Badge variant="outline" className="text-[10px]">{c.count}</Badge>
-                                      <span className="text-xs font-semibold text-foreground whitespace-nowrap">{formatKZT(c.estimatedLoss)}</span>
-                                    </div>
-                                  </div>
-                                  <div className="h-2 bg-muted rounded-full overflow-hidden mt-2">
-                                    <div
-                                      className="h-full bg-amber-400/70 dark:bg-amber-500/60 rounded-full"
-                                      style={{ width: `${w}%` }}
-                                    />
-                                  </div>
-                                </div>
-                              );
-                            })}
+                      {leakage.byCategory.slice(0, 5).map((c) => (
+                        <div key={c.category} className="flex items-center justify-between gap-3 rct-card-inset p-2.5">
+                          <span className="text-xs font-medium text-foreground">{c.label}</span>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="text-[10px]">{c.count}</Badge>
+                            <span className="text-xs font-semibold text-foreground">{formatKZT(c.estimatedLoss)}</span>
                           </div>
-                        );
-                      })()}
+                        </div>
+                      ))}
                     </div>
                   )}
-                </div>
-              </div>
+                </CardContent>
+              </Card>
             </div>
 
-            {/* Main stack */}
-            <div className="space-y-5 chrona-reveal-detail">
-              {/* Primary wide workspace */}
-              <div className="space-y-5">
+            {/* Main grid */}
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+              {/* Left: Deals + Invoices */}
+              <div className="space-y-6 xl:col-span-2">
                 {/* Unified leakage command table */}
-                <div className="chrona-hero chrona-hero-spotlight border-l-[4px] border-l-rose-400/70">
-                  <div className="flex items-start justify-between gap-3">
-                    <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                <Card className="rct-card border-l-[3px] border-l-rose-400/70">
+                  <CardHeader>
+                    <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4 text-rose-500" />
                       Почему деньги не доходят до оплаты
-                    </h2>
-                    <Badge variant="outline" className="text-xs shrink-0">
-                      {moneyLeakageRows.length} точек риска
-                    </Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground mt-1">
-                      Главная рабочая поверхность: место риска, причина, ответственный и следующий шаг.
-                  </p>
-                  <div className="mt-4">
+                    </CardTitle>
+                    <CardDescription className="text-muted-foreground">
+                      Одна таблица: где именно застряло, почему, кто отвечает и следующий шаг.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
                     {moneyLeakageRows.length === 0 ? (
                       <p className="text-sm text-muted-foreground">В выбранном периоде не найдено заметных точек риска.</p>
                     ) : (
                       <>
-                        {/* Compact reason breakdown (derived from unified leakage model) */}
-                        <div className="chrona-muted-surface mb-4">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="text-sm font-semibold text-foreground">Почему деньги “не доходят”</p>
-                              <p className="text-xs text-muted-foreground mt-1">Распределение причин по тем же точкам риска.</p>
-                            </div>
-                            <Badge variant="outline" className="text-[10px] shrink-0">
-                              top {Math.min(6, leakage.byCategory.length)}
-                            </Badge>
-                          </div>
-
-                          <div className="mt-3 space-y-2">
-                            {(() => {
-                              const top = leakage.byCategory.slice(0, 6);
-                              const maxLoss = Math.max(1, ...top.map((x) => x.estimatedLoss));
-                              return top.map((c) => {
-                                const w = Math.round((c.estimatedLoss / maxLoss) * 100);
-                                return (
-                                  <div key={c.category} className="space-y-1">
-                                    <div className="flex items-center justify-between gap-3">
-                                      <span className="text-xs font-medium text-foreground">{c.label}</span>
-                                      <div className="flex items-center gap-2">
-                                        <Badge variant="outline" className="text-[10px]">{c.count}</Badge>
-                                        <span className="text-xs font-semibold text-foreground whitespace-nowrap">{formatKZT(c.estimatedLoss)}</span>
-                                      </div>
-                                    </div>
-                                    <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                      <div
-                                        className="h-full bg-rose-400/70 dark:bg-rose-500/60 rounded-full"
-                                        style={{ width: `${w}%` }}
-                                      />
-                                    </div>
-                                  </div>
-                                );
-                              });
-                            })()}
-                          </div>
-                        </div>
-
-                        <div className="chrona-table">
-                          <table className="w-full table-fixed text-[11px] leading-4">
+                        <div className="overflow-x-auto border rounded-lg">
+                          <table className="w-full text-xs">
                             <thead>
-                              <tr>
-                                <th className="w-[16%] text-left px-2 py-2 font-medium text-muted-foreground">Сущность</th>
-                                <th className="w-[17%] text-left px-2 py-2 font-medium text-muted-foreground">Проблема (стадия)</th>
-                                <th className="w-[16%] text-left px-2 py-2 font-medium text-muted-foreground">Причина</th>
-                                <th className="w-[12%] text-right px-2 py-2 font-medium text-muted-foreground">Сумма в риске</th>
-                                <th className="w-[11%] text-left px-2 py-2 font-medium text-muted-foreground">Ответственный</th>
-                                <th className="w-[10%] text-left px-2 py-2 font-medium text-muted-foreground">Активность</th>
-                                <th className="w-[18%] text-left px-2 py-2 font-medium text-muted-foreground">Следующий шаг</th>
+                              <tr className="border-b bg-muted/30">
+                                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Клиент / сущность</th>
+                                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Проблема (стадия)</th>
+                                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Причина</th>
+                                <th className="text-right px-3 py-2 font-medium text-muted-foreground">Сумма в риске</th>
+                                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Ответственный</th>
+                                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Последняя активность</th>
+                                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Следующий шаг</th>
                               </tr>
                             </thead>
                             <tbody>
                               {moneyLeakageRows.slice(0, 15).map((r) => (
-                                <tr key={r.id} className="align-top">
-                                  <td className="px-2 py-2">
-                                    <div className="font-medium text-foreground whitespace-normal break-words">
-                                      {r.entityType === 'deal'
-                                        ? `Сделка: ${r.dealExternalId ?? '—'}`
-                                        : r.entityType === 'invoice'
-                                          ? `Счёт: ${r.invoiceExternalId ?? '—'}`
-                                          : `Клиент: ${r.customerExternalId ?? '—'}`}
+                                <tr key={r.id} className="border-b border-border/30 hover:bg-muted/20 align-top">
+                                  <td className="px-3 py-2">
+                                    <div className="font-medium text-foreground truncate max-w-[160px]">
+                                      {r.dealExternalId ?? r.invoiceExternalId ?? r.customerExternalId ?? '—'}
                                     </div>
-                                    <div className="text-[10px] text-muted-foreground mt-1 whitespace-normal break-words">
-                                      клиент: {r.customerExternalId ?? '—'}
-                                    </div>
-                                  </td>
-                                  <td className="px-2 py-2">
-                                    <div className="font-medium text-foreground whitespace-normal break-words">{r.problemStage}</div>
-                                  </td>
-                                  <td className="px-2 py-2">
-                                    <div className="text-muted-foreground whitespace-normal break-words">{r.reason}</div>
-                                  </td>
-                                  <td className="px-2 py-2 text-right">
-                                    <div className="flex items-center justify-end gap-2">
-                                      <div className="font-semibold text-foreground">
-                                        {r.amountAtRisk === null ? '—' : formatKZT(r.amountAtRisk)}
+                                    {r.customerExternalId && (
+                                      <div className="text-[10px] text-muted-foreground mt-1 truncate max-w-[160px]">
+                                        клиент: {r.customerExternalId}
                                       </div>
-                                      <TrustBadge level={r.trust} size="xs" />
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <div className="font-medium text-foreground">{r.problemStage}</div>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <div className="text-muted-foreground">{r.reason}</div>
+                                  </td>
+                                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                                    <div className="font-semibold text-foreground">
+                                      {r.amountAtRisk === null ? '—' : formatKZT(r.amountAtRisk)}
+                                    </div>
+                                    <div className="mt-1">
+                                      <TrustBadge level={r.trust} />
                                     </div>
                                   </td>
-                                  <td className="px-2 py-2 text-muted-foreground whitespace-normal break-words">{r.owner}</td>
-                                  <td className="px-2 py-2 text-muted-foreground whitespace-normal break-words">{r.lastActivity ? formatDateRu(r.lastActivity) : '—'}</td>
-                                  <td className="px-2 py-2">
-                                    <div className="text-muted-foreground whitespace-normal break-words">{r.recommendedNextAction}</div>
+                                  <td className="px-3 py-2 text-muted-foreground truncate max-w-[160px]">{r.owner}</td>
+                                  <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{r.lastActivity ? formatDateRu(r.lastActivity) : '—'}</td>
+                                  <td className="px-3 py-2">
+                                    <div className="text-muted-foreground">{r.recommendedNextAction}</div>
                                   </td>
                                 </tr>
                               ))}
@@ -939,53 +871,96 @@ export default function SalesCashPrioritiesPage() {
                         </p>
                       </>
                     )}
-                  </div>
-                </div>
+                  </CardContent>
+                </Card>
 
                 {/* ============================================= */}
                 {/* LOST DEALS ANALYSIS                             */}
                 {/* ============================================= */}
-                <div className="chrona-surface border-l-[3px] border-l-rose-400/70">
-                  <div className="flex items-start justify-between gap-3">
-                    <h3 className="chrona-section-title flex items-center gap-2">
+                <Card className="rct-card border-l-[3px] border-l-rose-400/70">
+                  <CardHeader>
+                    <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
                       <XCircle className="h-4 w-4 text-rose-500" />
                       Анализ потерянных сделок
-                    </h3>
-                  </div>
-                  <p className="text-sm text-muted-foreground mt-1">
+                    </CardTitle>
+                    <CardDescription className="text-muted-foreground">
                       Почему клиенты уходят: причины, стадии и ответственные.
-                  </p>
-                  <div className="mt-4">
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
                     {lostDealsAnalysis.total === 0 ? (
                       <p className="text-sm text-muted-foreground">Нет потерянных сделок в периоде — отлично!</p>
                     ) : (
-                      <div className="space-y-3">
+                      <div className="space-y-5">
+                        {/* Top reasons aggregation */}
+                        <div className="rct-card-inset p-4">
+                          <p className="text-sm font-semibold text-foreground mb-3">Причины потерь</p>
+                          <div className="space-y-2.5">
+                            {lostDealsAnalysis.reasonBreakdown.map((r) => {
+                              const maxPct = Math.max(1, ...lostDealsAnalysis.reasonBreakdown.map((x) => x.percentage));
+                              const w = Math.round((r.percentage / maxPct) * 100);
+                              return (
+                                <div key={r.reason} className="space-y-1">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <span className="text-xs font-medium text-foreground">{r.label}</span>
+                                    <span className="text-xs text-muted-foreground">
+                                      {r.count} ({r.percentage.toFixed(0)}%)
+                                    </span>
+                                  </div>
+                                  <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                    <div className="h-full bg-rose-400/70 dark:bg-rose-500/60 rounded-full" style={{ width: `${w}%` }} />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Lost by manager */}
+                        {lostDealsAnalysis.managerBreakdown.length > 0 && (
+                          <div className="rct-card-inset p-4">
+                            <p className="text-sm font-semibold text-foreground mb-3">По менеджерам</p>
+                            <div className="space-y-2">
+                              {lostDealsAnalysis.managerBreakdown.slice(0, 5).map((m) => {
+                                const max = Math.max(1, ...lostDealsAnalysis.managerBreakdown.map((x) => x.lostCount));
+                                return (
+                                  <RankedListItem
+                                    key={m.managerName}
+                                    label={m.managerName}
+                                    value={`${m.lostCount} потерь`}
+                                    progressPct={Math.round((m.lostCount / max) * 100)}
+                                    barColor="rose"
+                                  />
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
                         {/* Lost deals list */}
                         <div>
-                          <p className="text-sm font-semibold text-foreground mb-2">
-                            Топ потерянных сделок (lost)
-                          </p>
-                          <div className="chrona-table">
-                            <table className="w-full table-fixed text-[11px]">
+                          <p className="text-sm font-semibold text-foreground mb-3">Список потерянных сделок</p>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-xs">
                               <thead>
-                                <tr>
-                                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Сделка</th>
-                                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Клиент</th>
-                                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Стадия</th>
-                                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Причина</th>
-                                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Менеджер</th>
-                                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Дата</th>
+                                <tr className="border-b bg-muted/30">
+                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Сделка</th>
+                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Клиент</th>
+                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Стадия</th>
+                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Причина</th>
+                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Менеджер</th>
+                                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Дата</th>
                                 </tr>
                               </thead>
                               <tbody>
-                                {lostDealsAnalysis.deals.slice(0, 8).map((d) => (
-                                  <tr key={d.dealExternalId}>
-                                    <td className="px-2 py-2 font-medium text-foreground whitespace-normal break-words">{d.dealExternalId}</td>
-                                    <td className="px-2 py-2 text-muted-foreground whitespace-normal break-words">{d.customerExternalId}</td>
-                                    <td className="px-2 py-2">
+                                {lostDealsAnalysis.deals.slice(0, 15).map((d) => (
+                                  <tr key={d.dealExternalId} className="border-b border-border/30 hover:bg-muted/20">
+                                    <td className="px-3 py-2 font-medium text-foreground truncate max-w-[120px]">{d.dealExternalId}</td>
+                                    <td className="px-3 py-2 text-muted-foreground truncate max-w-[120px]">{d.customerExternalId}</td>
+                                    <td className="px-3 py-2">
                                       <Badge variant="outline" className="text-[10px]">{d.lostStage}</Badge>
                                     </td>
-                                    <td className="px-2 py-2">
+                                    <td className="px-3 py-2">
                                       <Badge
                                         variant="outline"
                                         className={cn(
@@ -997,113 +972,274 @@ export default function SalesCashPrioritiesPage() {
                                         {LOST_REASON_LABELS[d.lostReason] ?? d.lostReason}
                                       </Badge>
                                     </td>
-                                    <td className="px-2 py-2 text-muted-foreground whitespace-normal break-words">{d.managerName}</td>
-                                    <td className="px-2 py-2 text-muted-foreground whitespace-normal break-words">{formatDateRu(d.lostDate)}</td>
+                                    <td className="px-3 py-2 text-muted-foreground truncate max-w-[100px]">{d.managerName}</td>
+                                    <td className="px-3 py-2 text-muted-foreground">{formatDateRu(d.lostDate)}</td>
                                   </tr>
                                 ))}
                               </tbody>
                             </table>
                           </div>
-                          {lostDealsAnalysis.total > 8 && (
-                            <p className="text-xs text-muted-foreground mt-2">Показаны первые 8 из {lostDealsAnalysis.total}.</p>
+                          {lostDealsAnalysis.total > 15 && (
+                            <p className="text-xs text-muted-foreground mt-2">Показаны первые 15 из {lostDealsAnalysis.total}.</p>
                           )}
                         </div>
                       </div>
                     )}
-                  </div>
-                </div>
+                  </CardContent>
+                </Card>
 
-                {/* (уплотнение) stalled / invoices / delayed вынесены в единую таблицу риска */}
-              </div>
+                {/* Stalled deals */}
+                <Card className="rct-card">
+                  <CardHeader>
+                    <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
+                      Застрявшие сделки
+                      <MetricHelpIcon helpKey="stalled_deals" />
+                    </CardTitle>
+                    <CardDescription className="text-muted-foreground">
+                      Сделки, которые теряют темп и ставят деньги под угрозу.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {periodStalledDeals.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">Нет застрявших сделок.</p>
+                    ) : (
+                      (() => {
+                        const today = new Date();
+                        const todayTs = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+                        const bucketForDays = (daysLate: number) => {
+                          if (daysLate <= 7) return '0-7 дней';
+                          if (daysLate <= 14) return '8-14 дней';
+                          if (daysLate <= 30) return '15-30 дней';
+                          return '30+ дней';
+                        };
+                        const buckets = [
+                          { label: '0-7 дней', min: 0, max: 7 },
+                          { label: '8-14 дней', min: 8, max: 14 },
+                          { label: '15-30 дней', min: 15, max: 30 },
+                          { label: '30+ дней', min: 31, max: Infinity },
+                        ];
+                        const perBucket = buckets.map((b) => ({ label: b.label, count: 0, amount: 0 }));
+                        const normalized = periodStalledDeals.map((d) => {
+                          const ts = d.lastActivityDate ? new Date(d.lastActivityDate + 'T00:00:00').getTime() : NaN;
+                          const ageDays = Number.isFinite(ts) ? Math.max(0, Math.floor((todayTs - ts) / 86_400_000)) : 0;
+                          const label = bucketForDays(ageDays);
+                          const bucketIdx = buckets.findIndex((b) => label === b.label);
+                          return { ...d, ageDays, bucketIdx, bucketLabel: label };
+                        });
 
-              {/* Диагностика + риски — один ряд (по половине); рекомендации — на всю ширину ниже */}
-              <section
-                className="rounded-xl border border-border/60 bg-muted/15 dark:bg-muted/10 p-4 sm:p-5 space-y-5"
-                aria-labelledby="sales-cash-diagnostics-heading"
-              >
-                <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-                  <div>
-                    <h3 id="sales-cash-diagnostics-heading" className="chrona-section-title text-base">
-                      Диагностика и следующие шаги
-                    </h3>
-                    <p className="text-xs text-muted-foreground mt-1 max-w-3xl">
-                      Сверху — короткая диагностика; рекомендации развёрнуты на всю ширину, чтобы текст было удобно читать.
-                    </p>
-                  </div>
-                </div>
+                        for (const d of normalized) {
+                          if (d.bucketIdx < 0) continue;
+                          perBucket[d.bucketIdx].count += 1;
+                          perBucket[d.bucketIdx].amount += d.overdueAmountLinked;
+                        }
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-5 md:items-start">
-                  <div className="chrona-surface border-l-[3px] border-l-amber-400/70 p-4 min-w-0">
-                    <div className="flex items-center justify-between gap-3">
-                      <h4 className="text-sm font-semibold text-foreground">Диагностика связей</h4>
-                      <Badge variant="outline" className="text-xs shrink-0">
-                        {linkageDiagnostics.linkageCoveragePercent}% покрытие
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Цепочка: оплата → счёт → сделка → лид.
-                    </p>
+                        const listTop = normalized
+                          .slice()
+                          .sort((a, b) => b.overdueAmountLinked - a.overdueAmountLinked)
+                          .slice(0, 10);
+                        const maxAmount = Math.max(1, ...perBucket.map((b) => b.amount));
 
-                    <div className="mt-3 space-y-2">
-                      {linkageDiagnostics.topBreakReasons.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">Критичных разрывов связей не найдено.</p>
-                      ) : (
-                        linkageDiagnostics.topBreakReasons.map((r) => (
-                          <div key={r.label} className="chrona-muted-surface flex items-center justify-between gap-3">
-                            <span className="text-sm text-muted-foreground">{r.label}</span>
-                            <Badge variant="outline" className="text-xs">
-                              {r.count}
-                            </Badge>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
+                        return (
+                          <div className="space-y-4">
+                            <div className="rct-card-inset p-3.5">
+                              <p className="text-sm font-semibold text-foreground mb-2">По возрасту</p>
+                              <div className="space-y-2">
+                                {perBucket.map((b) => {
+                                  const w = Math.round((b.amount / maxAmount) * 100);
+                                  return (
+                                    <div key={b.label} className="space-y-1">
+                                      <div className="flex items-center justify-between gap-3">
+                                        <span className="text-xs font-medium text-muted-foreground">{b.label}</span>
+                                        <span className="text-xs font-semibold text-foreground whitespace-nowrap">
+                                          {b.count} · {formatKZT(b.amount)}
+                                        </span>
+                                      </div>
+                                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                        <div className="h-full bg-rose-400/70 dark:bg-rose-500/60 rounded-full" style={{ width: `${w}%` }} />
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
 
-                  <div className="chrona-surface p-4 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                        Топ рисков в оплате
-                        <MetricHelpIcon helpKey="priority_actions" />
-                      </h4>
-                    </div>
-                    <div className="mt-3">
-                      {moneyLeakageRows.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">Нет точек риска в выбранном периоде.</p>
-                      ) : (
-                        <div className="space-y-2">
-                          {moneyLeakageRows.slice(0, 3).map((r) => (
-                            <div key={r.id} className="chrona-muted-surface">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <p className="text-sm font-semibold text-foreground break-words">{r.problemStage}</p>
-                                  <div className="flex gap-2 mt-2 flex-wrap items-center">
-                                    <Badge variant="outline" className="text-[10px]">
-                                      {r.entityType}
-                                    </Badge>
-                                    <TrustBadge level={r.trust} size="xs" />
+                            <div className="space-y-2">
+                              {listTop.map((d) => (
+                                <div key={d.dealExternalId} className="rct-card-inset p-3">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-semibold text-foreground truncate">{d.dealExternalId}</p>
+                                      <p className="text-xs text-muted-foreground mt-1">
+                                        активность: {formatDateRu(d.lastActivityDate)} · {d.bucketLabel}
+                                      </p>
+                                    </div>
+                                    <div className="text-right">
+                                      <p className="text-sm font-semibold text-foreground whitespace-nowrap">{formatKZT(d.overdueAmountLinked)}</p>
+                                    </div>
                                   </div>
                                 </div>
-                                <Bolt className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-                              </div>
-                              <p className="text-xs text-muted-foreground mt-2">Причина: {r.reason}</p>
+                              ))}
                             </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                          </div>
+                        );
+                      })()
+                    )}
+                  </CardContent>
+                </Card>
 
+                {/* Invoices */}
+                <Card className="rct-card">
+                  <CardHeader>
+                    <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
+                      Неоплаченные и просроченные счета
+                      <MetricHelpIcon helpKey="risk_flags" />
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {(() => {
+                      const overdueInvoices = periodOverdueInvoices;
+                      const unpaidInvoices = periodUnpaidInvoices;
+                      const delayedCustomers = periodDelayedCustomers;
+
+                      const overdueTotal = overdueInvoices.reduce((s, x) => s + x.overdueAmount, 0);
+                      const unpaidTotal = unpaidInvoices.reduce((s, x) => s + x.outstanding, 0);
+                      const delayedTotal = delayedCustomers.reduce((s, x) => s + x.overdueAmount, 0);
+                      const nonOverdueUnpaid = unpaidTotal; // unpaidInvoices уже исключают просрочку
+
+                      const rankedOverdue = overdueInvoices
+                        .slice()
+                        .sort((a, b) => b.overdueAmount - a.overdueAmount)
+                        .slice(0, 7);
+                      const maxOverdue = Math.max(1, ...rankedOverdue.map((x) => x.overdueAmount));
+
+                      return (
+                        <>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div className="rct-stat-box-amber">
+                              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Просрочка</div>
+                              <div className="text-xl font-bold text-foreground mt-2">{formatKZT(overdueTotal)}</div>
+                              <div className="text-xs text-muted-foreground mt-1">{overdueInvoices.length} счет(ов)</div>
+                            </div>
+                            <div className="rct-stat-box-slate">
+                              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Неоплачено</div>
+                              <div className="text-xl font-bold text-foreground mt-2">{formatKZT(nonOverdueUnpaid)}</div>
+                              <div className="text-xs text-muted-foreground mt-1">без просрочки</div>
+                            </div>
+                            <div className="rct-stat-box-emerald">
+                              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Задержка клиентов</div>
+                              <div className="text-xl font-bold text-foreground mt-2">{formatKZT(delayedTotal)}</div>
+                              <div className="text-xs text-muted-foreground mt-1">{delayedCustomers.length} клиентов</div>
+                            </div>
+                          </div>
+
+                          {rankedOverdue.length > 0 && (
+                            <div className="rct-card-inset p-3">
+                              <p className="text-sm font-semibold text-foreground mb-2">Просроченные счета (топ)</p>
+                              <div className="space-y-2">
+                                {rankedOverdue.map((inv) => (
+                                  <RankedListItem
+                                    key={inv.invoiceExternalId ?? `${inv.customerExternalId}_${inv.dueDate}`}
+                                    label={inv.invoiceExternalId ?? 'Счёт'}
+                                    sublabel={`клиент: ${inv.customerExternalId ?? '—'} · due: ${formatDateRu(inv.dueDate)}`}
+                                    value={formatKZT(inv.overdueAmount)}
+                                    progressPct={Math.round((inv.overdueAmount / maxOverdue) * 100)}
+                                    barColor="rose"
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Right column */}
+              <div className="space-y-6">
+                {/* Delayed customers */}
+                <Card className="rct-card">
+                  <CardHeader>
+                    <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
+                      Клиенты с задержкой
+                      <MetricHelpIcon helpKey="delayed_customers" />
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {periodDelayedCustomers.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">Нет клиентов с задержкой.</p>
+                    ) : (
+                      (() => {
+                        const top = periodDelayedCustomers
+                          .slice()
+                          .sort((a, b) => b.overdueAmount - a.overdueAmount)
+                          .slice(0, 8);
+                        const max = Math.max(1, ...top.map((c) => c.overdueAmount));
+
+                        return (
+                          <div className="space-y-3">
+                            {top.map((c) => (
+                              <RankedListItem
+                                key={c.customerExternalId}
+                                label={c.customerExternalId}
+                                sublabel={`${c.overdueInvoiceCount} просроченных`}
+                                value={formatKZT(c.overdueAmount)}
+                                progressPct={Math.round((c.overdueAmount / max) * 100)}
+                                barColor="amber"
+                              />
+                            ))}
+                          </div>
+                        );
+                      })()
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Top risks (diagnostics) */}
+                <Card className="rct-card">
+                  <CardHeader className="rct-card-padding pb-2">
+                    <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
+                      Топ рисков в оплате
+                      <MetricHelpIcon helpKey="priority_actions" />
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {moneyLeakageRows.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">Нет точек риска в выбранном периоде.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {moneyLeakageRows.slice(0, 5).map((r) => (
+                          <div key={r.id} className="rct-card-inset p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-foreground truncate">{r.problemStage}</p>
+                                <div className="flex gap-2 mt-2 flex-wrap items-center">
+                                  <Badge variant="outline" className="text-[10px]">
+                                    {r.entityType}
+                                  </Badge>
+                                  <TrustBadge level={r.trust} />
+                                </div>
+                              </div>
+                              <Bolt className="h-4 w-4 text-primary mt-0.5" />
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-2">Причина: {r.reason}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Recommendations at bottom */}
                 <RecommendationsCard
                   title="Рекомендации"
                   description="Что делать дальше."
                   items={recommendationItems}
                   helpKey="priority_actions"
-                  compact={false}
-                  className="w-full border-border/80 shadow-none bg-background/90"
+                  compact
                 />
-              </section>
+              </div>
             </div>
           </>
         )}

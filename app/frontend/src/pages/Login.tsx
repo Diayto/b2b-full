@@ -2,22 +2,31 @@
 // BizPulse KZ — Login / Register Page
 // ============================================================
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { toast } from 'sonner';
-import { login, register } from '@/lib/store';
-import { Building2, Lock, Mail, User, BarChart3, Shield, Zap, TrendingUp } from 'lucide-react';
+import { useAuth } from '@/components/AuthProvider';
+import { signInWithEmailPassword, signUpWithProfile } from '@/lib/supabaseAuth';
+import { Building2, Lock, Mail, User, BarChart3, Shield, Target, TrendingUp } from 'lucide-react';
 import ThemeToggle from '@/components/ThemeToggle';
 import ChronaMark from '@/components/ChronaMark';
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const { user, loading: authLoading, supabaseReady } = useAuth();
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!authLoading && user && supabaseReady) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [authLoading, user, supabaseReady, navigate]);
 
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -29,11 +38,15 @@ export default function LoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!supabaseReady) {
+      toast.error('Задайте VITE_SUPABASE_URL и VITE_SUPABASE_ANON_KEY в .env.local');
+      return;
+    }
     setLoading(true);
     try {
-      login(loginEmail, loginPassword);
+      await signInWithEmailPassword(loginEmail, loginPassword);
       toast.success('Добро пожаловать!');
-      navigate('/dashboard');
+      navigate('/dashboard', { replace: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Ошибка входа');
     } finally {
@@ -47,11 +60,24 @@ export default function LoginPage() {
       toast.error('Заполните все поля');
       return;
     }
+    if (!supabaseReady) {
+      toast.error('Задайте VITE_SUPABASE_URL и VITE_SUPABASE_ANON_KEY в .env.local');
+      return;
+    }
     setLoading(true);
     try {
-      register(regEmail, regPassword, regName, regCompany);
+      const { emailConfirmationRequired } = await signUpWithProfile({
+        email: regEmail,
+        password: regPassword,
+        name: regName,
+        companyName: regCompany,
+      });
+      if (emailConfirmationRequired) {
+        toast.success('Аккаунт создан. Подтвердите email по ссылке из письма, затем войдите.');
+        return;
+      }
       toast.success('Компания создана! Добро пожаловать!');
-      navigate('/dashboard');
+      navigate('/dashboard', { replace: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Ошибка регистрации');
     } finally {
@@ -60,10 +86,10 @@ export default function LoginPage() {
   };
 
   const features = [
-    { icon: <BarChart3 className="h-4 w-4" />, text: 'Дашборд с KPI и трендами выручки' },
-    { icon: <TrendingUp className="h-4 w-4" />, text: 'Воронка от маркетинга до оплаты' },
-    { icon: <Shield className="h-4 w-4" />, text: 'Сигналы о рисках и просрочках' },
-    { icon: <Zap className="h-4 w-4" />, text: 'Рекомендации: что делать прямо сейчас' },
+    { icon: <BarChart3 className="h-4 w-4" />, text: 'Сводные метрики: маркетинг, продажи, деньги' },
+    { icon: <TrendingUp className="h-4 w-4" />, text: 'Одна цепочка от расхода до кассы' },
+    { icon: <Shield className="h-4 w-4" />, text: 'Риски и просрочки в одном срезе' },
+    { icon: <Target className="h-4 w-4" />, text: 'Главная проблема периода и следующий шаг' },
   ];
 
   return (
@@ -88,8 +114,8 @@ export default function LoginPage() {
           </h1>
 
           <p className="text-sm text-white/60 leading-relaxed mb-8">
-            Маркетинг, лиды, сделки, счета, оплаты — вся цепочка денег.
-            Видите риски, понимаете причины, действуете быстрее.
+            Соединяем маркетинг, продажи и денежный поток в одной логике: где узкое место, что сделать дальше, какой эффект
+            для бизнеса.
           </p>
 
           <div className="space-y-3">
@@ -116,7 +142,7 @@ export default function LoginPage() {
             <ChronaMark compact className="h-9 w-9 rounded-xl" />
             <div>
               <span className="text-base font-bold text-foreground">Chrona</span>
-              <p className="text-[10px] text-muted-foreground leading-tight">Revenue Control Tower</p>
+              <p className="text-[10px] text-muted-foreground leading-tight">Маркетинг · Продажи · Деньги</p>
             </div>
           </div>
           <div className="hidden lg:block" />
@@ -129,6 +155,19 @@ export default function LoginPage() {
               <h2 className="text-xl font-bold text-foreground tracking-tight">Добро пожаловать</h2>
               <p className="text-sm text-muted-foreground mt-1">Войдите или создайте аккаунт для начала работы</p>
             </div>
+
+            {!supabaseReady && (
+              <Alert variant="destructive" className="mb-6">
+                <AlertTitle>Нет подключения к Supabase</AlertTitle>
+                <AlertDescription>
+                  Скопируйте <span className="font-mono">.env.example</span> в{' '}
+                  <span className="font-mono">.env.local</span> и укажите{' '}
+                  <span className="font-mono">VITE_SUPABASE_URL</span> и{' '}
+                  <span className="font-mono">VITE_SUPABASE_ANON_KEY</span>. Выполните SQL-миграцию из{' '}
+                  <span className="font-mono">supabase/migrations/</span> в консоли проекта Supabase.
+                </AlertDescription>
+              </Alert>
+            )}
 
             <Tabs defaultValue="login" className="w-full">
               <TabsList className="grid w-full grid-cols-2 mb-6">
@@ -174,7 +213,7 @@ export default function LoginPage() {
                           />
                         </div>
                       </div>
-                      <Button type="submit" className="w-full" disabled={loading}>
+                      <Button type="submit" className="w-full" disabled={loading || authLoading || !supabaseReady}>
                         {loading ? 'Вход...' : 'Войти'}
                       </Button>
                     </form>
@@ -249,7 +288,7 @@ export default function LoginPage() {
                           />
                         </div>
                       </div>
-                      <Button type="submit" className="w-full" disabled={loading}>
+                      <Button type="submit" className="w-full" disabled={loading || authLoading || !supabaseReady}>
                         {loading ? 'Создание...' : 'Создать аккаунт'}
                       </Button>
                     </form>

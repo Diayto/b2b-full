@@ -1,5 +1,5 @@
 // ============================================================
-// Chrona — Premium App Layout with Sidebar Navigation
+// Chrona — Owner MVP shell (4 surfaces only)
 // ============================================================
 
 import { useState } from 'react';
@@ -9,11 +9,18 @@ import { Button } from '@/components/ui/button';
 import ThemeToggle from '@/components/ThemeToggle';
 import ChronaMark from '@/components/ChronaMark';
 import {
-  LayoutDashboard, Upload, FileText, Settings, LogOut,
-  ChevronLeft, ChevronRight, Menu, ClipboardList,
-  Megaphone, DollarSign, Sparkles,
+  LayoutDashboard,
+  Upload,
+  LogOut,
+  ChevronLeft,
+  ChevronRight,
+  Menu,
+  Lightbulb,
+  User,
 } from 'lucide-react';
 import { clearSession, getCurrentUser } from '@/lib/store';
+import { isSupabaseConfigured } from '@/lib/supabaseClient';
+import { signOutSupabase } from '@/lib/supabaseAuth';
 
 interface NavItem {
   label: string;
@@ -21,28 +28,12 @@ interface NavItem {
   icon: React.ReactNode;
 }
 
-type NavGroup = { label?: string; items: NavItem[] };
-const navGroups: NavGroup[] = [
-  {
-    items: [
-      { label: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard className="h-5 w-5 shrink-0" /> },
-      { label: 'Marketing', path: '/marketing', icon: <Megaphone className="h-5 w-5 shrink-0" /> },
-      { label: 'Sales/Cash', path: '/sales-cash', icon: <DollarSign className="h-5 w-5 shrink-0" /> },
-    ],
-  },
-  {
-    label: 'Operations',
-    items: [
-      { label: 'Uploads', path: '/uploads', icon: <Upload className="h-5 w-5 shrink-0" /> },
-      { label: 'Documents', path: '/documents', icon: <FileText className="h-5 w-5 shrink-0" /> },
-    ],
-  },
-  {
-    items: [
-      { label: 'Plan', path: '/plan', icon: <ClipboardList className="h-5 w-5 shrink-0" /> },
-      { label: 'Settings', path: '/settings', icon: <Settings className="h-5 w-5 shrink-0" /> },
-    ],
-  },
+/** Visible product: Data → Dashboard → Breakdown → Profile */
+const ownerNav: NavItem[] = [
+  { label: 'Главный экран', path: '/dashboard', icon: <LayoutDashboard className="h-5 w-5 shrink-0" /> },
+  { label: 'Данные', path: '/uploads', icon: <Upload className="h-5 w-5 shrink-0" /> },
+  { label: 'Разбор', path: '/insights', icon: <Lightbulb className="h-5 w-5 shrink-0" /> },
+  { label: 'Профиль', path: '/settings', icon: <User className="h-5 w-5 shrink-0" /> },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -52,8 +43,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const user = getCurrentUser();
 
-  const handleLogout = () => {
-    clearSession();
+  const handleLogout = async () => {
+    try {
+      if (isSupabaseConfigured()) {
+        await signOutSupabase();
+      } else {
+        clearSession();
+      }
+    } catch {
+      clearSession();
+    }
     navigate('/');
   };
   const userInitials = (user?.name || user?.email || 'U')
@@ -74,43 +73,37 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           )}
         >
           <h1 className="text-lg chrona-sidebar-brand truncate whitespace-nowrap">Chrona</h1>
-          <p className="chrona-sidebar-meta mt-0.5 truncate whitespace-nowrap">Revenue Control OS</p>
+          <p className="chrona-sidebar-meta mt-0.5 truncate whitespace-nowrap">Одна картина · решение</p>
         </div>
       </div>
 
-      <nav className="flex-1 px-3 py-4 space-y-5 overflow-y-auto">
-        {navGroups.map((group) => (
-          <div key={group.label ?? 'main'} className="space-y-1">
-            {group.label && !collapsed && (
-              <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-white/45">
-                {group.label}
-              </p>
-            )}
-            {group.items.map((item) => {
-              const isActive =
-                location.pathname === item.path ||
-                (item.path === '/marketing' && location.pathname.startsWith('/marketing'));
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  onClick={() => setMobileOpen(false)}
-                  className={cn('chrona-nav-item', isActive && 'chrona-nav-item-active')}
-                >
-                  {item.icon}
-                  <span
-                    className={cn(
-                      'overflow-hidden whitespace-nowrap transition-all duration-250 ease-out',
-                      collapsed ? 'max-w-0 opacity-0' : 'max-w-[150px] opacity-100 delay-75'
-                    )}
-                  >
-                    {item.label}
-                  </span>
-                </Link>
-              );
-            })}
-          </div>
-        ))}
+      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        {!collapsed && (
+          <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/40">Навигация</p>
+        )}
+        {ownerNav.map((item) => {
+          const isActive =
+            location.pathname === item.path ||
+            (item.path === '/uploads' && location.pathname.startsWith('/uploads'));
+          return (
+            <Link
+              key={item.path}
+              to={item.path}
+              onClick={() => setMobileOpen(false)}
+              className={cn('chrona-nav-item', isActive && 'chrona-nav-item-active')}
+            >
+              {item.icon}
+              <span
+                className={cn(
+                  'overflow-hidden whitespace-nowrap transition-all duration-250 ease-out',
+                  collapsed ? 'max-w-0 opacity-0' : 'max-w-[170px] opacity-100 delay-75',
+                )}
+              >
+                {item.label}
+              </span>
+            </Link>
+          );
+        })}
       </nav>
 
       <div className="px-3 py-4 border-t border-white/10">
@@ -192,20 +185,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <ChronaMark compact className="h-8 w-8 rounded-lg" />
           <div>
             <span className="font-bold text-foreground text-base">Chrona</span>
-            <p className="text-[11px] text-muted-foreground leading-tight">Revenue Control OS</p>
+            <p className="text-[11px] text-muted-foreground leading-tight">Одна картина · решение</p>
           </div>
           <div className="ml-auto">
             <ThemeToggle collapsed />
           </div>
-        </header>
-
-        <header className="hidden lg:flex items-center justify-between px-6 py-3 chrona-topbar">
-          <div className="flex items-center gap-3">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <span className="text-sm font-semibold tracking-tight text-foreground">Chrona Workspace</span>
-            <span className="chrona-topbar-chip">Founder Mode</span>
-          </div>
-          <div />
         </header>
 
         <main className="chrona-workspace">{children}</main>

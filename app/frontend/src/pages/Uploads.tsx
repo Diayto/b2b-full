@@ -14,7 +14,7 @@ import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 import {
   Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle,
-  FileText, Eye, ArrowRight, ArrowDown, Zap, Settings2,
+  FileText, Eye, ArrowRight, ArrowDown, Zap, Settings2, ChevronDown,
 } from 'lucide-react';
 import {
   getSession,
@@ -72,6 +72,12 @@ import type {
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
 import { cn } from '@/lib/utils';
+import { allowChronaDemoFallback } from '@/lib/chronaDemoPreview';
+import { MvpSupabaseUploadCard } from '@/components/MvpSupabaseUploadCard';
+import DemoSourcesStrip from '@/components/DemoSourcesStrip';
+import OwnerDemoScenarioCard from '@/components/OwnerDemoScenarioCard';
+import DataInstagramPreviewCard from '@/components/DataInstagramPreviewCard';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 const EMPTY_URL = 'https://mgx-backend-cdn.metadl.com/generate/images/977836/2026-02-19/564e0562-0b93-4cbb-9ae9-7398783510cc.png';
 
@@ -807,11 +813,6 @@ export default function UploadsPage() {
   const guidedProgressPercent = Math.round((completedGuidedSteps / guidedSteps.length) * 100);
   const nextGuidedStep = guidedSteps.find((s) => !s.done) ?? null;
 
-  if (!session) {
-    navigate('/');
-    return null;
-  }
-
   return (
     <AppLayout>
       <div className="chrona-page">
@@ -819,15 +820,39 @@ export default function UploadsPage() {
         <div className="chrona-tier-1">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h1 className="rct-page-title">Smart Upload Workspace</h1>
-              <p className="rct-body-micro mt-1">
-                Загрузите любую таблицу — Chrona сам определит тип данных и сопоставит колонки.
+              <h1 className="rct-page-title">Данные</h1>
+              <p className="rct-body-micro mt-1 max-w-2xl">
+                Подключите входы — свод в облаке формирует главный экран. Instagram и таблицы — части одной картины, не
+                отдельные продукты.
               </p>
             </div>
-            <span className="chrona-topbar-chip">Import Intelligence</span>
           </div>
         </div>
 
+        <DemoSourcesStrip />
+
+        <OwnerDemoScenarioCard companyId={companyId} />
+
+        <MvpSupabaseUploadCard companyId={companyId} />
+
+        {allowChronaDemoFallback() ? <DataInstagramPreviewCard /> : null}
+
+        <p className="text-xs text-muted-foreground -mt-2">
+          Ниже — пошаговая загрузка листов Excel/CSV, если нужен разбор по типам файлов. В демо-режиме блок по умолчанию
+          свёрнут.
+        </p>
+
+        <Collapsible defaultOpen={!allowChronaDemoFallback()} className="space-y-3">
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left text-sm font-medium shadow-sm hover:bg-muted/40 transition-colors"
+            >
+              <span>Детальная загрузка таблиц (Excel / CSV)</span>
+              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="space-y-3">
         {/* Progress steps */}
         <div className="chrona-surface flex items-center gap-2 text-sm">
           {[
@@ -1329,16 +1354,10 @@ export default function UploadsPage() {
 
                   <div className="flex flex-col sm:flex-row gap-2 mb-5">
                     <Button variant="outline" onClick={() => navigate('/dashboard')} className="flex-1">
-                      Дашборд
+                      Главный экран
                     </Button>
-                    <Button variant="outline" onClick={() => navigate('/marketing')} className="flex-1">
-                      Маркетинг
-                    </Button>
-                    <Button variant="outline" onClick={() => navigate('/sales-cash')} className="flex-1">
-                      Деньги / Sales
-                    </Button>
-                    <Button variant="outline" onClick={() => navigate('/marketing/data')} className="flex-1">
-                      Данные маркетинга
+                    <Button variant="outline" onClick={() => navigate('/insights')} className="flex-1">
+                      Разбор
                     </Button>
                   </div>
 
@@ -1413,11 +1432,11 @@ export default function UploadsPage() {
                 <div className="space-y-2 text-xs text-muted-foreground">
                   <div className="flex items-start gap-2">
                     <Badge variant="outline" className="text-[10px] shrink-0">1</Badge>
-                    <p>Загрузите любой Excel/CSV файл</p>
+                    <p>Загрузите Excel или CSV</p>
                   </div>
                   <div className="flex items-start gap-2">
                     <Badge variant="outline" className="text-[10px] shrink-0">2</Badge>
-                    <p>Система автоматически определит тип данных</p>
+                    <p>Выберите тип данных или доверьтесь подсказке по колонкам</p>
                   </div>
                   <div className="flex items-start gap-2">
                     <Badge variant="outline" className="text-[10px] shrink-0">3</Badge>
@@ -1438,6 +1457,8 @@ export default function UploadsPage() {
             </Card>
           </div>
         </div>
+          </CollapsibleContent>
+        </Collapsible>
       </div>
     </AppLayout>
   );
