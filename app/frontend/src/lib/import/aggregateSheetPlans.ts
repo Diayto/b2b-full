@@ -186,7 +186,7 @@ function patchMarketingSpendDefaults(parsed: ParseResult, sheetName: string): Pa
 
 function tryPresetPlans(sheetName: string, rows: Record<string, unknown>[], cols: string[]): WorkbookSheetPlan[] {
   for (const ft of AGGREGATE_PRESET_ORDER) {
-    const det = mapWithPreset(cols, ft);
+    const det = mapWithPreset(cols, ft, rows);
     if (det.mappings.length === 0) continue;
     const mapped = applyColumnMappings(rows, det.mappings);
     let parsed = parseFromRows(mapped, ft);
@@ -197,7 +197,7 @@ function tryPresetPlans(sheetName: string, rows: Record<string, unknown>[], cols
     return [{ sheetName, fileType: ft, mappedRows: mapped, parsed }];
   }
 
-  const det = detectAndMap(cols);
+  const det = detectAndMap(cols, rows);
   if (det.mappings.length > 0 && det.fileType !== 'leads') {
     const mapped = applyColumnMappings(rows, det.mappings);
     let parsed = parseFromRows(mapped, det.fileType);

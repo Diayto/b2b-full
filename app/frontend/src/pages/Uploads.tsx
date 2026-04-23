@@ -3,7 +3,7 @@
 // Auto-detect, auto-map, mapping confirmation UI
 // ============================================================
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -279,7 +279,7 @@ function buildPlansForWorkbookSheet(sheetName: string, rows: Record<string, unkn
   const out: SmartBatchSheetPlan[] = [];
 
   if (normalized.includes('продаж')) {
-    const dealDet = mapWithPreset(cols, 'deals');
+    const dealDet = mapWithPreset(cols, 'deals', rows);
     if (dealDet.mappings.length > 0) {
       const mapped = applyColumnMappings(rows, dealDet.mappings);
       const parsed = parseFromRows(mapped, 'deals');
@@ -287,7 +287,7 @@ function buildPlansForWorkbookSheet(sheetName: string, rows: Record<string, unkn
         out.push({ sheetName, fileType: 'deals', mappedRows: mapped, parsed });
       }
     }
-    const invDet = mapWithPreset(cols, 'invoices');
+    const invDet = mapWithPreset(cols, 'invoices', rows);
     if (invDet.mappings.length > 0) {
       const mapped = applyColumnMappings(rows, invDet.mappings);
       const parsed = parseFromRows(mapped, 'invoices');
@@ -304,8 +304,8 @@ function buildPlansForWorkbookSheet(sheetName: string, rows: Record<string, unkn
 
   const suggestedType = suggestFileTypeBySheetName(sheetName);
   let detection: DetectionResult = suggestedType
-    ? mapWithPreset(cols, suggestedType)
-    : detectAndMap(cols);
+    ? mapWithPreset(cols, suggestedType, rows)
+    : detectAndMap(cols, rows);
 
   if (!detection.mappings.length) return out;
 
@@ -315,7 +315,7 @@ function buildPlansForWorkbookSheet(sheetName: string, rows: Record<string, unkn
   if (parsed.rows.length === 0 && !suggestedType) {
     const fallbacks: FileType[] = ['leads', 'deals', 'invoices', 'marketing_spend', 'customers'];
     for (const ft of fallbacks) {
-      const det = mapWithPreset(cols, ft);
+      const det = mapWithPreset(cols, ft, rows);
       if (det.mappings.length === 0) continue;
       const m = applyColumnMappings(rows, det.mappings);
       const p = parseFromRows(m, ft);
@@ -363,6 +363,7 @@ export default function UploadsPage() {
   const [sheetTypeSuggestion, setSheetTypeSuggestion] = useState<FileType | null>(null);
   const [postImportChecklist, setPostImportChecklist] = useState<PostImportChecklist | null>(null);
   const [smartBatchPlan, setSmartBatchPlan] = useState<SmartBatchSheetPlan[] | null>(null);
+  const [autoAnalyzeAttempted, setAutoAnalyzeAttempted] = useState(false);
 
   const uploads = getUploads(companyId);
 
@@ -401,6 +402,7 @@ export default function UploadsPage() {
     setSheetTypeSuggestion(null);
     setPostImportChecklist(null);
     setSmartBatchPlan(null);
+    setAutoAnalyzeAttempted(false);
 
     const normalizedExt = ext?.toLowerCase();
     if (normalizedExt === 'xlsx' || normalizedExt === 'xls') {
@@ -493,12 +495,12 @@ export default function UploadsPage() {
         let detection: DetectionResult;
         const suggestedType = sheetTypeSuggestion ?? suggestFileTypeBySheetName(selectedSheet || '');
         if (suggestedType) {
-          detection = mapWithPreset(cols, suggestedType);
+          detection = mapWithPreset(cols, suggestedType, rows);
           if (!detection || detection.mappings.length === 0) {
-            detection = detectAndMap(cols);
+            detection = detectAndMap(cols, rows);
           }
         } else {
-          const primary = detectAndMap(cols);
+          const primary = detectAndMap(cols, rows);
           if (primary.confidence >= 0.2 && primary.mappings.length > 0) {
             detection = primary;
           } else {
@@ -532,6 +534,28 @@ export default function UploadsPage() {
       setProcessing(false);
     }
   }, [selectedFile, selectedSheet, availableSheets, sheetTypeSuggestion, fileType]);
+
+  // Auto-analyze immediately after file selection in smart mode.
+  useEffect(() => {
+    if (!selectedFile) return;
+    if (fileType !== 'auto') return;
+    if (step !== 'select' || processing || autoAnalyzeAttempted) return;
+
+    const ext = selectedFile.name.split('.').pop()?.toLowerCase();
+    const isWorkbook = ext === 'xlsx' || ext === 'xls';
+    if (isWorkbook && availableSheets.length === 0) return;
+
+    setAutoAnalyzeAttempted(true);
+    void handleSmartAnalyze();
+  }, [
+    selectedFile,
+    fileType,
+    step,
+    processing,
+    autoAnalyzeAttempted,
+    availableSheets.length,
+    handleSmartAnalyze,
+  ]);
 
   const updateMapping = useCallback((sourceColumn: string, newTarget: string) => {
     setEditableMappings((prev) =>
@@ -691,7 +715,22 @@ export default function UploadsPage() {
             return;
           }
           const directRows = await fileToRawRows(selectedFile, selectedSheet || undefined);
-          parsed = parseFromRows(directRows, resolvedFileType);
+          const directColumns = Object.keys(directRows[0] ?? {});
+          const presetDetection = mapWithPreset(directColumns, resolvedFileType, directRows);
+          const mappedRows =
+            presetDetection.mappings.length > 0
+              ? applyColumnMappings(directRows, presetDetection.mappings)
+              : directRows;
+          parsed = parseFromRows(mappedRows, resolvedFileType);
+
+          if (presetDetection.mappings.length > 0) {
+            const mappedPct = Math.round(
+              (presetDetection.mappings.length / Math.max(directColumns.length, 1)) * 100,
+            );
+            toast.success(
+              `Автосопоставление колонок: ${presetDetection.mappings.length}/${directColumns.length} (${mappedPct}%)`,
+            );
+          }
         }
 
         const successRows = parsed.rows;
@@ -772,6 +811,7 @@ export default function UploadsPage() {
     setSheetTypeSuggestion(null);
     setPostImportChecklist(null);
     setSmartBatchPlan(null);
+    setAutoAnalyzeAttempted(false);
   };
 
   // Available target fields for the detected type
@@ -1299,7 +1339,12 @@ export default function UploadsPage() {
                   )}
 
                   <div className="flex gap-3">
-                    <Button variant="outline" onClick={() => setStep('mapping')}>Назад к маппингу</Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setStep(smartBatchPlan && smartBatchPlan.length > 0 ? 'select' : 'mapping')}
+                    >
+                      Назад к маппингу
+                    </Button>
                     <Button onClick={handleUpload} disabled={processing} className="bg-primary hover:bg-primary/90">
                       {processing ? 'Загрузка...' : 'Загрузить данные'}
                     </Button>

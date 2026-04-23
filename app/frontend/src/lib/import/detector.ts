@@ -37,10 +37,90 @@ function matchScore(sourceNorm: string, candidateNorm: string): number {
   return similarity > 0.7 ? similarity * 0.6 : 0;
 }
 
+function sampleColumnValues(
+  rows: Record<string, unknown>[] | undefined,
+  column: string,
+  limit = 50,
+): string[] {
+  if (!rows || rows.length === 0) return [];
+  const values: string[] = [];
+  for (const row of rows.slice(0, limit)) {
+    const value = row[column];
+    if (value === null || value === undefined) continue;
+    const text = String(value).trim();
+    if (!text) continue;
+    values.push(text);
+  }
+  return values;
+}
+
+function ratio(values: string[], predicate: (v: string) => boolean): number {
+  if (values.length === 0) return 0;
+  const matched = values.filter(predicate).length;
+  return matched / values.length;
+}
+
+function valueScoreForField(field: string, values: string[]): number {
+  if (values.length === 0) return 0;
+
+  const isDate = (v: string) =>
+    /^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(v) ||
+    /^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(v);
+  const isNumeric = (v: string) => {
+    const normalized = v.replace(/\s/g, '').replace(',', '.');
+    return normalized !== '' && Number.isFinite(Number(normalized));
+  };
+  const isPhone = (v: string) => /^[+]?[0-9()\-\s]{7,20}$/.test(v) && /\d{6,}/.test(v);
+  const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.toLowerCase());
+  const isStatus = (v: string) =>
+    /^(new|qualified|lost|paid|won|open|closed|pending|оплачен|новый|в работе|закрыт|потерян)$/i.test(v);
+
+  switch (field) {
+    case 'amount':
+    case 'impressions':
+    case 'reach':
+    case 'profileVisits':
+    case 'likes':
+    case 'comments':
+    case 'saves':
+    case 'shares':
+    case 'inboundMessages':
+    case 'leadsGenerated':
+    case 'dealsGenerated':
+    case 'paidConversions':
+    case 'clicks':
+      return ratio(values, isNumeric) >= 0.6 ? 0.85 : 0;
+    case 'date':
+    case 'month':
+    case 'createdDate':
+    case 'invoiceDate':
+    case 'dueDate':
+    case 'paymentDate':
+    case 'wonDate':
+    case 'lostDate':
+    case 'publishedAt':
+    case 'startDate':
+    case 'expectedCloseDate':
+    case 'lastActivityDate':
+      return ratio(values, isDate) >= 0.5 ? 0.85 : 0;
+    case 'phone':
+      return ratio(values, isPhone) >= 0.5 ? 0.9 : 0;
+    case 'email':
+      return ratio(values, isEmail) >= 0.4 ? 0.95 : 0;
+    case 'status':
+      return ratio(values, isStatus) >= 0.4 ? 0.8 : 0;
+    default:
+      return 0;
+  }
+}
+
 /**
  * Detect file type and map columns using preset knowledge.
  */
-export function detectAndMap(sourceColumns: string[]): DetectionResult {
+export function detectAndMap(
+  sourceColumns: string[],
+  sourceRows?: Record<string, unknown>[],
+): DetectionResult {
   const sourceNorms = sourceColumns.map(normalize);
   const results: Array<{ preset: ImportPreset; score: number; mappings: ColumnMapping[] }> = [];
 
@@ -66,6 +146,9 @@ export function detectAndMap(sourceColumns: string[]): DetectionResult {
         for (const alias of field.aliases) {
           fScore = Math.max(fScore, matchScore(sourceNorm, normalize(alias)));
         }
+        const valueScore = valueScoreForField(field.field, sampleColumnValues(sourceRows, sourceCol));
+        // Blend title-based and content-based confidence for robust mapping.
+        fScore = Math.max(fScore, valueScore * 0.9);
 
         if (fScore > bestScore) {
           bestScore = fScore;
@@ -132,6 +215,7 @@ export function detectAndMap(sourceColumns: string[]): DetectionResult {
 export function mapWithPreset(
   sourceColumns: string[],
   fileType: FileType,
+  sourceRows?: Record<string, unknown>[],
 ): DetectionResult {
   const preset = IMPORT_PRESETS.find((p) => p.fileType === fileType);
   if (!preset) {
@@ -163,6 +247,8 @@ export function mapWithPreset(
       for (const alias of field.aliases) {
         fScore = Math.max(fScore, matchScore(sourceNorm, normalize(alias)));
       }
+      const valueScore = valueScoreForField(field.field, sampleColumnValues(sourceRows, sourceCol));
+      fScore = Math.max(fScore, valueScore * 0.9);
 
       if (fScore > bestScore) {
         bestScore = fScore;
