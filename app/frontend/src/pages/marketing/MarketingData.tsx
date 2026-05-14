@@ -684,6 +684,9 @@ export default function MarketingData() {
             result.livePull
               ? `Graph: media ${result.livePull.mediaReceived ?? 0}, rows ${result.livePull.rowsMapped ?? 0}`
               : null,
+            result.livePull?.accountProfile
+              ? `Аккаунт: @${result.livePull.accountProfile.username ?? '—'} · подписчики ${result.livePull.accountProfile.followersCount ?? '—'} · публикаций ${result.livePull.accountProfile.mediaCount ?? '—'}`
+              : null,
             ing
               ? `Job ${ing.job?.id ?? 'n/a'} (${ing.job?.status ?? 'n/a'}) · processed ${ing.processed ?? 0} · I/U ${ing.inserted ?? 0}/${ing.updated ?? 0}`
               : null,

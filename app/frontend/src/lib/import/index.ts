@@ -35,3 +35,11 @@ export {
   mapWithPreset,
   getTargetFieldsForType,
 } from './detector';
+
+// --- Best match across all schemas ---
+export {
+  ALL_IMPORT_FILE_TYPES,
+  suggestFileTypeBySheetName,
+  resolveBestTableImport,
+} from './resolveBestTableImport';
+export type { ResolvedBestTableImport } from './resolveBestTableImport';

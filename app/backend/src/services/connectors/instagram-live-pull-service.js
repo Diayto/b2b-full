@@ -117,6 +117,52 @@ export class InstagramLivePullService {
   }
 
   /**
+   * Instagram professional account profile (followers, media count, etc.).
+   * Requires token/scopes from the same OAuth flow as media.
+   */
+  async fetchIgUserProfile({ igUserId, accessToken }) {
+    const base = graphOrigin(this.env.META_GRAPH_VERSION);
+    const u = new URL(`${base}/${encodeURIComponent(igUserId)}`);
+    u.searchParams.set(
+      'fields',
+      'id,username,name,followers_count,follows_count,media_count',
+    );
+    u.searchParams.set('access_token', accessToken);
+
+    const res = await fetch(u.toString(), { method: 'GET' });
+    const text = await res.text();
+    let data;
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = { raw: text };
+    }
+    if (!res.ok) {
+      const msg = data?.error?.message || data?.error?.error_user_msg || text || `HTTP ${res.status}`;
+      const err = new Error(msg);
+      err.statusCode = res.status;
+      err.graphError = data?.error;
+      throw err;
+    }
+
+    const d = data || {};
+    return {
+      id: d.id != null ? String(d.id).trim() : '',
+      username: typeof d.username === 'string' ? d.username.trim() : null,
+      name: typeof d.name === 'string' ? d.name.trim() : null,
+      followersCount: Number.isFinite(Number(d.followers_count))
+        ? Math.max(0, Math.floor(Number(d.followers_count)))
+        : null,
+      followsCount: Number.isFinite(Number(d.follows_count))
+        ? Math.max(0, Math.floor(Number(d.follows_count)))
+        : null,
+      mediaCount: Number.isFinite(Number(d.media_count))
+        ? Math.max(0, Math.floor(Number(d.media_count)))
+        : null,
+    };
+  }
+
+  /**
    * POST /api/connectors/instagram/sources/:sourceId/live-pull
    */
   async execute({
@@ -201,6 +247,16 @@ export class InstagramLivePullService {
 
     const limit = clampLimit(limitRaw, 25, 50);
 
+    let accountProfile = null;
+    try {
+      accountProfile = await this.fetchIgUserProfile({
+        igUserId,
+        accessToken: tokenLoad.accessToken,
+      });
+    } catch {
+      accountProfile = null;
+    }
+
     let graphData;
     try {
       graphData = await this.fetchIgMediaPage({
@@ -214,6 +270,14 @@ export class InstagramLivePullService {
         statusCode: e.statusCode && e.statusCode >= 400 && e.statusCode < 600 ? e.statusCode : 502,
         error: e.message || 'Graph API request failed',
         details: e.graphError ? { graph: e.graphError } : undefined,
+        livePull: {
+          igUserId,
+          accountProfile,
+          mediaReceived: 0,
+          rowsMapped: 0,
+          skipped: [],
+          graphPaging: false,
+        },
       };
     }
 
@@ -228,6 +292,7 @@ export class InstagramLivePullService {
         sourceId: source.id,
         livePull: {
           igUserId,
+          accountProfile,
           mediaReceived: mediaList.length,
           rowsMapped: 0,
           skipped,
@@ -270,6 +335,7 @@ export class InstagramLivePullService {
         sourceId: source.id,
         livePull: {
           igUserId,
+          accountProfile,
           mediaReceived: mediaList.length,
           rowsMapped: rows.length,
           skipped,
@@ -304,6 +370,7 @@ export class InstagramLivePullService {
       sourceId: source.id,
       livePull: {
         igUserId,
+        accountProfile,
         mediaReceived: mediaList.length,
         rowsMapped: rows.length,
         skipped,

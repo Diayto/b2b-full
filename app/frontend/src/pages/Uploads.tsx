@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 import {
-  Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle,
+  Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle, Instagram,
   FileText, Eye, ArrowRight, ArrowDown, Zap, Settings2, ChevronDown,
 } from 'lucide-react';
 import {
@@ -50,7 +50,13 @@ import {
 } from '@/lib/import/smartWorkbookDefaults';
 import { buildAggregateSheetPlans, isAggregateSheetNameNormalized } from '@/lib/import/aggregateSheetPlans';
 import { parseFromRows } from '@/lib/parsers';
-import { detectAndMap, mapWithPreset, getTargetFieldsForType } from '@/lib/import';
+import {
+  detectAndMap,
+  mapWithPreset,
+  getTargetFieldsForType,
+  resolveBestTableImport,
+  suggestFileTypeBySheetName,
+} from '@/lib/import';
 import { applyColumnMappings } from '@/lib/import/pipeline';
 import type { ColumnMapping, DetectionResult } from '@/lib/import/pipeline';
 import { smartMapColumns } from '@/lib/columnMapper';
@@ -77,6 +83,7 @@ import { MvpSupabaseUploadCard } from '@/components/MvpSupabaseUploadCard';
 import DemoSourcesStrip from '@/components/DemoSourcesStrip';
 import OwnerDemoScenarioCard from '@/components/OwnerDemoScenarioCard';
 import DataInstagramPreviewCard from '@/components/DataInstagramPreviewCard';
+import InstagramQuickConnectPopover from '@/components/InstagramQuickConnectPopover';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 const EMPTY_URL = 'https://mgx-backend-cdn.metadl.com/generate/images/977836/2026-02-19/564e0562-0b93-4cbb-9ae9-7398783510cc.png';
@@ -188,15 +195,6 @@ interface GuidedStep {
   done: boolean;
 }
 
-function suggestFileTypeBySheetName(sheetName: string): FileType | null {
-  const normalized = sheetName.toLowerCase().trim();
-  if (normalized.includes('консультац')) return 'leads';
-  if (normalized.includes('продаж')) return 'deals';
-  if (normalized.includes('свод')) return 'marketing_spend';
-  if (normalized.includes('расход') || normalized.includes('spend')) return 'marketing_spend';
-  return null;
-}
-
 function parseWorksheetToRows(sheet: XLSX.WorkSheet): Record<string, unknown>[] {
   const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as unknown[][];
   if (!matrix.length) return [];
@@ -302,38 +300,15 @@ function buildPlansForWorkbookSheet(sheetName: string, rows: Record<string, unkn
     return buildAggregateSheetPlans(sheetName, rows) as SmartBatchSheetPlan[];
   }
 
-  const suggestedType = suggestFileTypeBySheetName(sheetName);
-  let detection: DetectionResult = suggestedType
-    ? mapWithPreset(cols, suggestedType)
-    : detectAndMap(cols);
-
-  if (!detection.mappings.length) return out;
-
-  let mappedRows = applyColumnMappings(rows, detection.mappings);
-  let parsed = parseFromRows(mappedRows, detection.fileType);
-
-  if (parsed.rows.length === 0 && !suggestedType) {
-    const fallbacks: FileType[] = ['leads', 'deals', 'invoices', 'marketing_spend', 'customers'];
-    for (const ft of fallbacks) {
-      const det = mapWithPreset(cols, ft);
-      if (det.mappings.length === 0) continue;
-      const m = applyColumnMappings(rows, det.mappings);
-      const p = parseFromRows(m, ft);
-      if (p.rows.length > 0) {
-        detection = det;
-        mappedRows = m;
-        parsed = p;
-        break;
-      }
-    }
+  const resolved = resolveBestTableImport(rows, { sheetName });
+  if (resolved && resolved.parsed.rows.length > 0) {
+    out.push({
+      sheetName,
+      fileType: resolved.fileType,
+      mappedRows: resolved.mappedRows,
+      parsed: resolved.parsed,
+    });
   }
-
-  if (parsed.rows.length === 0) return out;
-
-  const finalParsed =
-    detection.fileType === 'leads' ? enrichLeadsWithDefaultChannel(parsed) : parsed;
-
-  out.push({ sheetName, fileType: detection.fileType, mappedRows, parsed: finalParsed });
   return out;
 }
 
@@ -490,41 +465,58 @@ export default function UploadsPage() {
         const cols = Object.keys(rows[0]);
         setSourceColumns(cols);
 
-        let detection: DetectionResult;
-        const suggestedType = sheetTypeSuggestion ?? suggestFileTypeBySheetName(selectedSheet || '');
-        if (suggestedType) {
-          detection = mapWithPreset(cols, suggestedType);
-          if (!detection || detection.mappings.length === 0) {
-            detection = detectAndMap(cols);
-          }
+        const autoResolved = resolveBestTableImport(rows, { sheetName: selectedSheet || '' });
+        if (autoResolved && autoResolved.parsed.rows.length > 0) {
+          setDetectionResult(autoResolved.detection);
+          setEditableMappings([...autoResolved.detection.mappings]);
+          setAutoDetectedType(autoResolved.fileType);
+          setParsedResult(autoResolved.parsed);
+          setPreview(autoResolved.mappedRows.slice(0, 20));
+          setErrors(autoResolved.parsed.errors);
+          setWarnings(autoResolved.parsed.warnings ?? []);
+          setStep('preview');
+          const confPct = Math.round(autoResolved.detection.confidence * 100);
+          toast.success(
+            `Таблица распознана как «${FILE_TYPE_CONFIG[autoResolved.fileType].label}»: ${autoResolved.parsed.rows.length} строк · ${autoResolved.detection.mappings.length} колонок · тип ${confPct}%`,
+          );
         } else {
-          const primary = detectAndMap(cols);
-          if (primary.confidence >= 0.2 && primary.mappings.length > 0) {
-            detection = primary;
+          let detection: DetectionResult;
+          const suggestedType = sheetTypeSuggestion ?? suggestFileTypeBySheetName(selectedSheet || '');
+          if (suggestedType) {
+            detection = mapWithPreset(cols, suggestedType);
+            if (!detection || detection.mappings.length === 0) {
+              detection = detectAndMap(cols);
+            }
           } else {
-            const fallback = smartMapColumns(cols);
-            detection = {
-              fileType: fallback.detectedType,
-              confidence: fallback.typeConfidence / 100,
-              mappings: fallback.mappings.map((m) => ({
-                sourceColumn: m.sourceColumn,
-                targetField: m.targetField,
-                confidence: m.confidence / 100,
-                isUserOverride: false,
-              })),
-              unmappedSourceColumns: fallback.unmappedSourceColumns,
-              unmappedTargetFields: fallback.unmappedTargetFields,
-            };
+            const primary = detectAndMap(cols);
+            if (primary.confidence >= 0.2 && primary.mappings.length > 0) {
+              detection = primary;
+            } else {
+              const fallback = smartMapColumns(cols);
+              detection = {
+                fileType: fallback.detectedType,
+                confidence: fallback.typeConfidence / 100,
+                mappings: fallback.mappings.map((m) => ({
+                  sourceColumn: m.sourceColumn,
+                  targetField: m.targetField,
+                  confidence: m.confidence / 100,
+                  isUserOverride: false,
+                })),
+                unmappedSourceColumns: fallback.unmappedSourceColumns,
+                unmappedTargetFields: fallback.unmappedTargetFields,
+              };
+            }
           }
+
+          setDetectionResult(detection);
+          setEditableMappings([...detection.mappings]);
+          setAutoDetectedType(detection.fileType);
+          setParsedResult(null);
+          setStep('mapping');
+
+          const confPct = Math.round(detection.confidence * 100);
+          toast.success(`Определено как "${FILE_TYPE_CONFIG[detection.fileType].label}" (${detection.mappings.length} колонок · уверенность ${confPct}%)`);
         }
-
-        setDetectionResult(detection);
-        setEditableMappings([...detection.mappings]);
-        setAutoDetectedType(detection.fileType);
-        setStep('mapping');
-
-        const confPct = Math.round(detection.confidence * 100);
-        toast.success(`Определено как "${FILE_TYPE_CONFIG[detection.fileType].label}" (${detection.mappings.length} колонок · уверенность ${confPct}%)`);
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Ошибка чтения файла');
@@ -830,6 +822,22 @@ export default function UploadsPage() {
         </div>
 
         <DemoSourcesStrip />
+
+        <Card className="chrona-surface border-primary/15">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Instagram className="h-5 w-5 text-primary shrink-0" aria-hidden />
+              Подключить Instagram (Meta)
+            </CardTitle>
+            <CardDescription className="text-sm leading-relaxed">
+              OAuth и подтяжка постов через Instagram Graph. Нужны режим API, backend с Meta и{' '}
+              <span className="font-medium text-foreground">VITE_API_BASE_URL</span> — детали в меню по кнопке ниже.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <InstagramQuickConnectPopover companyId={companyId} />
+          </CardContent>
+        </Card>
 
         <OwnerDemoScenarioCard companyId={companyId} />
 

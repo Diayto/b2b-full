@@ -7,6 +7,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import OwnerInsights from './pages/OwnerInsights';
 import Uploads from './pages/Uploads';
+import MarketingData from './pages/marketing/MarketingData';
 import Settings from './pages/Settings';
 import NotFound from './pages/NotFound';
 import DeadlineReminderBootstrap from './components/DeadlineReminderBootstrap';
@@ -29,6 +30,9 @@ function AppRoutes() {
           <Route path="/insights" element={<OwnerInsights />} />
           <Route path="/uploads" element={<Uploads />} />
           <Route path="/settings" element={<Settings />} />
+
+          {/* Instagram OAuth callback + marketing ops API (must stay above legacy redirect) */}
+          <Route path="/marketing/data" element={<MarketingData />} />
 
           {/* Legacy / internal routes → owner MVP surfaces */}
           <Route path="/marketing/*" element={<Navigate to="/uploads" replace />} />

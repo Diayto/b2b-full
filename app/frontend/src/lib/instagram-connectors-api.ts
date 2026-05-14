@@ -247,6 +247,15 @@ export interface LivePullResponse {
   message?: string;
   livePull?: {
     igUserId?: string;
+    /** IG User node from Graph (followers, counts) — optional if the profile request fails */
+    accountProfile?: {
+      id?: string;
+      username?: string | null;
+      name?: string | null;
+      followersCount?: number | null;
+      followsCount?: number | null;
+      mediaCount?: number | null;
+    } | null;
     mediaReceived?: number;
     rowsMapped?: number;
     skipped?: string[];
