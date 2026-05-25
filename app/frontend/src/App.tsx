@@ -7,10 +7,8 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import OwnerInsights from './pages/OwnerInsights';
 import Uploads from './pages/Uploads';
-import MarketingData from './pages/marketing/MarketingData';
 import Settings from './pages/Settings';
 import NotFound from './pages/NotFound';
-import DeadlineReminderBootstrap from './components/DeadlineReminderBootstrap';
 import RouteErrorBoundary from './components/RouteErrorBoundary';
 import { AuthProvider } from './components/AuthProvider';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -30,16 +28,12 @@ function AppRoutes() {
           <Route path="/insights" element={<OwnerInsights />} />
           <Route path="/uploads" element={<Uploads />} />
           <Route path="/settings" element={<Settings />} />
-
-          {/* Instagram OAuth callback + marketing ops API (must stay above legacy redirect) */}
-          <Route path="/marketing/data" element={<MarketingData />} />
-
-          {/* Legacy / internal routes → owner MVP surfaces */}
-          <Route path="/marketing/*" element={<Navigate to="/uploads" replace />} />
-          <Route path="/sales-cash" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/documents" element={<Navigate to="/uploads" replace />} />
-          <Route path="/plan" element={<Navigate to="/dashboard" replace />} />
         </Route>
+
+        <Route path="/marketing/*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/sales-cash" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/documents" element={<Navigate to="/uploads" replace />} />
+        <Route path="/plan" element={<Navigate to="/dashboard" replace />} />
 
         <Route path="*" element={<NotFound />} />
       </Routes>
@@ -54,7 +48,6 @@ const App = () => (
         <Toaster />
         <BrowserRouter>
           <AuthProvider>
-            <DeadlineReminderBootstrap />
             <AppRoutes />
           </AuthProvider>
         </BrowserRouter>

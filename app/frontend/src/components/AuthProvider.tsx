@@ -41,12 +41,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }, 0);
     };
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      const u = session?.user ?? null;
-      applySession(u);
-      scheduleEnsureProfile(u);
-      setLoading(false);
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data: { session } }) => {
+        const u = session?.user ?? null;
+        applySession(u);
+        scheduleEnsureProfile(u);
+      })
+      .catch((e) => {
+        console.warn('[Chrona] getSession failed', e);
+        applySession(null);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
 
     const {
       data: { subscription },

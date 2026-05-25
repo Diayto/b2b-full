@@ -159,12 +159,20 @@ export default function LoginPage() {
             {!supabaseReady && (
               <Alert variant="destructive" className="mb-6">
                 <AlertTitle>Нет подключения к Supabase</AlertTitle>
-                <AlertDescription>
-                  Скопируйте <span className="font-mono">.env.example</span> в{' '}
-                  <span className="font-mono">.env.local</span> и укажите{' '}
-                  <span className="font-mono">VITE_SUPABASE_URL</span> и{' '}
-                  <span className="font-mono">VITE_SUPABASE_ANON_KEY</span>. Выполните SQL-миграцию из{' '}
-                  <span className="font-mono">supabase/migrations/</span> в консоли проекта Supabase.
+                <AlertDescription className="space-y-2">
+                  <p>
+                    Локально: скопируйте <span className="font-mono">app/frontend/.env.example</span> в{' '}
+                    <span className="font-mono">.env.local</span> и укажите{' '}
+                    <span className="font-mono">VITE_SUPABASE_URL</span> и{' '}
+                    <span className="font-mono">VITE_SUPABASE_ANON_KEY</span>, затем перезапустите{' '}
+                    <span className="font-mono">pnpm dev</span>.
+                  </p>
+                  <p>
+                    На Vercel: Project → Settings → Environment Variables — те же два ключа, затем <strong>Redeploy</strong>.
+                  </p>
+                  <p>
+                    В Supabase SQL Editor выполните миграции из <span className="font-mono">supabase/migrations/</span>.
+                  </p>
                 </AlertDescription>
               </Alert>
             )}
@@ -213,9 +221,14 @@ export default function LoginPage() {
                           />
                         </div>
                       </div>
-                      <Button type="submit" className="w-full" disabled={loading || authLoading || !supabaseReady}>
-                        {loading ? 'Вход...' : 'Войти'}
+                      <Button type="submit" className="w-full" disabled={loading || authLoading}>
+                        {loading ? 'Вход...' : !supabaseReady ? 'Войти (нужен Supabase)' : 'Войти'}
                       </Button>
+                      {!supabaseReady ? (
+                        <p className="text-xs text-muted-foreground text-center">
+                          Без ключей Supabase вход не выполнится — настройте переменные в блоке выше.
+                        </p>
+                      ) : null}
                     </form>
                   </CardContent>
                 </Card>
@@ -288,8 +301,8 @@ export default function LoginPage() {
                           />
                         </div>
                       </div>
-                      <Button type="submit" className="w-full" disabled={loading || authLoading || !supabaseReady}>
-                        {loading ? 'Создание...' : 'Создать аккаунт'}
+                      <Button type="submit" className="w-full" disabled={loading || authLoading}>
+                        {loading ? 'Создание...' : !supabaseReady ? 'Создать (нужен Supabase)' : 'Создать аккаунт'}
                       </Button>
                     </form>
                   </CardContent>

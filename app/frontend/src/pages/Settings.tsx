@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { Building2, User, Trash2 } from 'lucide-react';
-import { getSession, getCurrentUser, getCompany, clearCompanyLocalStorageData } from '@/lib/store';
+import { getSession, getCurrentUser, getCompany, clearLegacyBrowserStorage } from '@/lib/store';
 import { isSupabaseConfigured } from '@/lib/supabaseClient';
 import { clearSupabaseCompanyData } from '@/lib/supabaseClearCompanyData';
 import { CHRONA_OWNER_DEMO_SESSION_KEY } from '@/lib/chronaDemoPreview';
@@ -27,8 +27,8 @@ export default function SettingsPage() {
   const handleClearData = async () => {
     const supabaseOn = isSupabaseConfigured();
     const msg = supabaseOn
-      ? 'Удалить метрики и инсайты в Supabase для этого аккаунта и локальные данные в браузере? Вход и профиль остаются.'
-      : 'Удалить только локальные данные в браузере?';
+      ? 'Удалить метрики и инсайты в Supabase для этого аккаунта? Вход и профиль остаются.'
+      : 'Очистить служебные данные браузера от старых версий приложения?';
 
     if (!window.confirm(msg)) return;
 
@@ -49,14 +49,14 @@ export default function SettingsPage() {
         /* ignore */
       }
 
-      clearCompanyLocalStorageData(companyId);
+      clearLegacyBrowserStorage();
 
       if (supabaseOn && cloudOk) {
-        toast.success('Данные очищены');
+        toast.success('Данные в облаке очищены');
       } else if (supabaseOn && !cloudOk) {
-        toast.warning('Локально очищено; облако — см. ошибку выше');
+        toast.warning('См. ошибку облака выше');
       } else {
-        toast.success('Локальные данные очищены');
+        toast.success('Готово');
       }
       window.location.reload();
     } finally {
