@@ -24,7 +24,7 @@ function wwwFacebookOauthUrl(graphVersion) {
 
 function frontendRedirectUrl(env, { ok, sourceId, reason }) {
   const base = env.INSTAGRAM_OAUTH_FRONTEND_REDIRECT_BASE || env.CORS_ORIGIN || 'http://localhost:3000';
-  const path = env.INSTAGRAM_OAUTH_FRONTEND_PATH || '/marketing/data';
+  const path = env.INSTAGRAM_OAUTH_FRONTEND_PATH || '/uploads';
   const u = new URL(path, base.endsWith('/') ? base : `${base}/`);
   if (ok) {
     u.searchParams.set('ig_oauth', '1');

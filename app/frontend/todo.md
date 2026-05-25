@@ -7,12 +7,12 @@
 - **Auth и данные:** Supabase (`profiles`, `processed_metrics`, `insights`, `connected_sources`)
 - **Сессия UI:** in-memory (`src/lib/session.ts`), без business-data в localStorage
 - **Таблица:** `MvpSupabaseUploadCard` на `/uploads` — агрегат в облако
-- **Instagram:** `InstagramConnectCard` на `/dashboard` + backend OAuth (`VITE_API_BASE_URL`)
+- **Instagram:** `InstagramConnectCard` на `/uploads` + backend OAuth (`VITE_API_BASE_URL`)
 
 ## Экраны (4)
 
-1. `/dashboard` — главный экран, KPI, инсайт, Instagram
-2. `/uploads` — загрузка сводной таблицы
+1. `/dashboard` — главный экран, KPI, инсайт
+2. `/uploads` — Instagram + загрузка сводной таблицы
 3. `/insights` — разбор правил
 4. `/settings` — профиль, сброс данных в облаке
 

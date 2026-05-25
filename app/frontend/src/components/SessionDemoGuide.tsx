@@ -18,7 +18,7 @@ export default function SessionDemoGuide() {
           <strong>2.</strong> Сопоставьте колонки → <strong>«Сохранить и открыть дашборд»</strong>.
         </p>
         <p>
-          <strong>3.</strong> Instagram подключается на <strong>главном экране</strong> — отдельный раздел маркетинга не нужен.
+          <strong>3.</strong> Instagram — блок выше на этой же странице.
         </p>
       </AlertDescription>
     </Alert>

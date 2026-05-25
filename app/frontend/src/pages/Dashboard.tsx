@@ -1,6 +1,6 @@
 // Chrona — Owner decision surface (Supabase + centralized preview fallback)
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -25,10 +25,6 @@ import EmptyStateCard from '@/components/controltower/EmptyStateCard';
 import ControlTowerKpiCard from '@/components/controltower/ControlTowerKpiCard';
 import OwnerBusinessChain from '@/components/OwnerBusinessChain';
 import OwnerSourceSignalCards from '@/components/OwnerSourceSignalCards';
-import InstagramConnectCard from '@/components/InstagramConnectCard';
-import { getSession } from '@/lib/store';
-import { formatIgOAuthReason } from '@/lib/instagram-oauth-messages';
-import { persistInstagramPipelineMetrics } from '@/lib/ingestBackendSummaries';
 import { cn } from '@/lib/utils';
 
 const EMPTY_ILLU =
@@ -41,12 +37,9 @@ function moneyOrDash(value: number): string {
 
 export default function DashboardPage() {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
   const accelerator = isAcceleratorDemoMode();
-  const companyId = getSession()?.companyId ?? '';
   const [bundle, setBundle] = useState<OwnerCloudBundle | null>(null);
   const [loading, setLoading] = useState(true);
-  const [oauthFeedback, setOauthFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -79,27 +72,6 @@ export default function DashboardPage() {
   useEffect(() => {
     void reload();
   }, [reload]);
-
-  useEffect(() => {
-    const ig = searchParams.get('ig_oauth');
-    if (ig === null) return;
-    const reason = searchParams.get('reason');
-    if (ig === '1') {
-      setOauthFeedback({ type: 'success', message: 'Instagram подключён' });
-      if (companyId) {
-        void persistInstagramPipelineMetrics(companyId).then(() => reload()).catch(() => reload());
-      } else {
-        void reload();
-      }
-    } else {
-      setOauthFeedback({ type: 'error', message: formatIgOAuthReason(reason) });
-    }
-    const next = new URLSearchParams(searchParams);
-    next.delete('ig_oauth');
-    next.delete('reason');
-    next.delete('sourceId');
-    setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams, companyId, reload]);
 
   const row: ProcessedMetricsRow | null = bundle?.row ?? null;
   const insight: InsightRow | null = bundle?.insight ?? null;
@@ -140,14 +112,6 @@ export default function DashboardPage() {
     <AppLayout>
       <div className="chrona-page">
         {loading && <p className="text-sm text-muted-foreground py-3">Загрузка…</p>}
-
-        {!loading && companyId ? (
-          <InstagramConnectCard
-            companyId={companyId}
-            oauthFeedback={oauthFeedback}
-            onSynced={() => void reload()}
-          />
-        ) : null}
 
         {(isStaticDemo || isOwnerDemoSessionActive()) && !loading && row ? (
           <Badge variant="outline" className="text-xs">

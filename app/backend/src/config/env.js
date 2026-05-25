@@ -37,5 +37,5 @@ export const env = {
   /** Base URL for browser redirect after OAuth (defaults to CORS_ORIGIN) */
   INSTAGRAM_OAUTH_FRONTEND_REDIRECT_BASE: toOptionalString(process.env.INSTAGRAM_OAUTH_FRONTEND_REDIRECT_BASE),
   /** Path appended to redirect base (default /marketing/data) */
-  INSTAGRAM_OAUTH_FRONTEND_PATH: toOptionalString(process.env.INSTAGRAM_OAUTH_FRONTEND_PATH) || '/dashboard',
+  INSTAGRAM_OAUTH_FRONTEND_PATH: toOptionalString(process.env.INSTAGRAM_OAUTH_FRONTEND_PATH) || '/uploads',
 };
