@@ -2,6 +2,7 @@
 import AppLayout from '@/components/AppLayout';
 import { MvpSupabaseUploadCard } from '@/components/MvpSupabaseUploadCard';
 import SessionDemoGuide from '@/components/SessionDemoGuide';
+import OwnerDemoScenarioCard from '@/components/OwnerDemoScenarioCard';
 import { getSession } from '@/lib/store';
 
 export default function UploadsPage() {
@@ -16,6 +17,8 @@ export default function UploadsPage() {
             Загрузите сводную таблицу — главный экран и разбор построятся из одного снимка периода в облаке.
           </p>
         </div>
+
+        <OwnerDemoScenarioCard companyId={companyId} />
 
         <SessionDemoGuide />
 

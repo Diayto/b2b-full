@@ -6,10 +6,23 @@ let runtimeConfig: {
 // Configuration loading state
 let configLoading = true;
 
-// Default fallback configuration
+// Default: empty = same-origin /api (Vite proxy in dev). Avoid localhost in production builds.
 const defaultConfig = {
-  API_BASE_URL: 'http://127.0.0.1:8000', // Only used if runtime config fails to load
+  API_BASE_URL: '',
 };
+
+/** True when Instagram/API calls can reach a backend (env URL or dev proxy). */
+export function isBackendApiConfigured(): boolean {
+  const env = String(import.meta.env.VITE_API_BASE_URL ?? '').trim();
+  if (env) return true;
+  return Boolean(import.meta.env.DEV);
+}
+
+function normalizeApiBase(url: string): string {
+  const t = url.trim();
+  if (t === '/') return '';
+  return t;
+}
 
 // Function to load runtime configuration
 export async function loadRuntimeConfig(): Promise<void> {
@@ -61,14 +74,17 @@ export function getConfig() {
   // Then try Vite environment variables (for local development)
   if (import.meta.env.VITE_API_BASE_URL) {
     const viteConfig = {
-      API_BASE_URL: import.meta.env.VITE_API_BASE_URL,
+      API_BASE_URL: normalizeApiBase(String(import.meta.env.VITE_API_BASE_URL)),
     };
     console.log('Using Vite environment config');
     return viteConfig;
   }
 
-  // Finally fall back to default
-  console.log('Using default config');
+  if (import.meta.env.DEV) {
+    return { API_BASE_URL: '' };
+  }
+
+  console.log('Using default config (no VITE_API_BASE_URL)');
   return defaultConfig;
 }
 

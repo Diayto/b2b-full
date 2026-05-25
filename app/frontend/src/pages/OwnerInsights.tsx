@@ -8,7 +8,15 @@ import { formatKZT } from '@/lib/metrics';
 import type { ProcessedMetricsRow } from '@/lib/supabaseMetrics';
 import type { InsightRow } from '@/lib/supabaseInsights';
 import { buildExecutionPlan, parseMatchedRule } from '@/lib/insightExecutionPlan';
-import { resolveOwnerCloudBundle, type OwnerCloudBundle } from '@/lib/ownerCloudBundle';
+import {
+  resolveOwnerCloudBundle,
+  getChronaDemoInsightRow,
+  type OwnerCloudBundle,
+} from '@/lib/ownerCloudBundle';
+import {
+  CHRONA_DEMO_PROCESSED_METRICS_ROW,
+  allowChronaDemoFallback,
+} from '@/lib/chronaDemoPreview';
 import { buildFunnelBreakdown } from '@/lib/chronaSourceCredibility';
 import { ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -61,7 +69,17 @@ export default function OwnerInsightsPage() {
       const b = await resolveOwnerCloudBundle();
       setBundle(b);
     } catch {
-      setBundle({ row: null, insight: null, source: 'empty', isStaticDemo: false, fetchError: null });
+      if (allowChronaDemoFallback()) {
+        setBundle({
+          row: CHRONA_DEMO_PROCESSED_METRICS_ROW,
+          insight: getChronaDemoInsightRow(),
+          source: 'demo',
+          isStaticDemo: true,
+          fetchError: null,
+        });
+      } else {
+        setBundle({ row: null, insight: null, source: 'empty', isStaticDemo: false, fetchError: null });
+      }
     } finally {
       setLoading(false);
     }

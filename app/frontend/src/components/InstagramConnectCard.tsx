@@ -3,7 +3,7 @@ import { Instagram, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { getAPIBaseURL } from '@/lib/config';
+import { getAPIBaseURL, isBackendApiConfigured } from '@/lib/config';
 import { formatIgOAuthReason } from '@/lib/instagram-oauth-messages';
 import {
   fetchInstagramSourcesFromApi,
@@ -27,7 +27,7 @@ type Props = {
 };
 
 export default function InstagramConnectCard({ companyId, oauthFeedback, onSynced }: Props) {
-  const apiAvailable = Boolean(getAPIBaseURL()?.trim());
+  const apiAvailable = isBackendApiConfigured();
   const [sources, setSources] = useState<InstagramSource[]>([]);
   const [loading, setLoading] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
@@ -105,9 +105,16 @@ export default function InstagramConnectCard({ companyId, oauthFeedback, onSynce
         ) : null}
 
         {!apiAvailable ? (
-          <p className="text-xs text-muted-foreground">
-            Укажите <span className="font-mono">VITE_API_BASE_URL</span> (бэкенд с Meta) и пересоберите сайт.
-          </p>
+          <div className="text-xs text-muted-foreground space-y-1">
+            <p>
+              На Vercel задайте <span className="font-mono">VITE_API_BASE_URL</span> — HTTPS-адрес вашего Node-бэкенда с
+              Meta (OAuth), затем Redeploy.
+            </p>
+            <p>
+              Локально: запустите <span className="font-mono">npm run dev</span> в <span className="font-mono">app/backend</span>{' '}
+              и фронт — прокси <span className="font-mono">/api</span> подхватится сам.
+            </p>
+          </div>
         ) : !companyId ? (
           <p className="text-xs text-muted-foreground">Войдите в аккаунт.</p>
         ) : (

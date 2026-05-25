@@ -18,6 +18,7 @@ import {
   CHRONA_DEMO_PROCESSED_METRICS_ROW,
   allowChronaDemoFallback,
   isAcceleratorDemoMode,
+  isOwnerDemoSessionActive,
 } from '@/lib/chronaDemoPreview';
 import { resolveInstagramSignal, resolveTableSourceSignal } from '@/lib/chronaSourceCredibility';
 import EmptyStateCard from '@/components/controltower/EmptyStateCard';
@@ -139,6 +140,20 @@ export default function DashboardPage() {
     <AppLayout>
       <div className="chrona-page">
         {loading && <p className="text-sm text-muted-foreground py-3">Загрузка…</p>}
+
+        {!loading && companyId ? (
+          <InstagramConnectCard
+            companyId={companyId}
+            oauthFeedback={oauthFeedback}
+            onSynced={() => void reload()}
+          />
+        ) : null}
+
+        {(isStaticDemo || isOwnerDemoSessionActive()) && !loading && row ? (
+          <Badge variant="outline" className="text-xs">
+            Демо-превью · данные для показа
+          </Badge>
+        ) : null}
 
         {showErrorNoData && (
           <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
@@ -303,12 +318,6 @@ export default function DashboardPage() {
                 </span>
               </div>
             </div>
-
-            <InstagramConnectCard
-              companyId={companyId}
-              oauthFeedback={oauthFeedback}
-              onSynced={() => void reload()}
-            />
 
             {sourceSignals.table ? (
               <OwnerSourceSignalCards instagram={sourceSignals.instagram} table={sourceSignals.table} />
