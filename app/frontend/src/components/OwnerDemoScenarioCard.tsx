@@ -2,7 +2,13 @@ import { useNavigate } from 'react-router-dom';
 import { Sparkles, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { isOwnerDemoSessionActive, setOwnerDemoSessionActive } from '@/lib/chronaDemoPreview';
+import {
+  activateOwnerDemoSession,
+  deactivateOwnerDemoSession,
+  getOwnerDemoSessionRow,
+  isOwnerDemoSessionActive,
+} from '@/lib/chronaDemoPreview';
+import { getDemoScenarioLabel } from '@/lib/chronaDemoGenerator';
 
 type Props = { companyId: string };
 
@@ -10,15 +16,16 @@ type Props = { companyId: string };
 export default function OwnerDemoScenarioCard({ companyId }: Props) {
   const navigate = useNavigate();
   const active = isOwnerDemoSessionActive();
+  const scenarioLabel = active ? getDemoScenarioLabel(getOwnerDemoSessionRow()!) : null;
 
   const enable = () => {
     if (!companyId) return;
-    setOwnerDemoSessionActive(true);
+    activateOwnerDemoSession();
     navigate('/dashboard', { replace: true });
   };
 
   const disable = () => {
-    setOwnerDemoSessionActive(false);
+    deactivateOwnerDemoSession();
     navigate('/dashboard', { replace: true });
   };
 
@@ -38,8 +45,11 @@ export default function OwnerDemoScenarioCard({ companyId }: Props) {
         {active ? (
           <>
             <span className="inline-flex items-center rounded-md border border-border bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
-              Демо включено
+              Демо включено{scenarioLabel ? ` · ${scenarioLabel}` : ''}
             </span>
+            <Button type="button" variant="outline" size="sm" onClick={() => { activateOwnerDemoSession(); navigate('/dashboard', { replace: true }); }}>
+              Другой сценарий
+            </Button>
             <Button type="button" variant="outline" size="sm" onClick={disable}>
               <XCircle className="h-4 w-4 mr-1.5" />
               Выключить

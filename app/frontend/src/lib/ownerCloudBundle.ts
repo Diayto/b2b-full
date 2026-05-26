@@ -1,4 +1,8 @@
-import { allowChronaDemoFallback, CHRONA_DEMO_PROCESSED_METRICS_ROW } from '@/lib/chronaDemoPreview';
+import {
+  allowChronaDemoFallback,
+  getActiveDemoMetricsRow,
+  getOwnerDemoSessionRow,
+} from '@/lib/chronaDemoPreview';
 import { evaluateProcessedMetricsInsight, type InsightEvaluation } from '@/lib/insightEngine';
 import { isSupabaseConfigured } from '@/lib/supabaseClient';
 import { fetchLatestProcessedMetrics, type ProcessedMetricsRow } from '@/lib/supabaseMetrics';
@@ -41,14 +45,15 @@ export function buildInsightForMetricsRow(
   return evaluationToInsightRow(evaluation, row);
 }
 
-let cachedDemoInsight: InsightRow | null = null;
-
-/** Insight row consistent with CHRONA_DEMO_PROCESSED_METRICS_ROW (rule engine, not hand-written drift). */
-export function getChronaDemoInsightRow(): InsightRow {
-  if (!cachedDemoInsight) {
-    cachedDemoInsight = buildInsightForMetricsRow(CHRONA_DEMO_PROCESSED_METRICS_ROW, null);
-  }
-  return cachedDemoInsight;
+function resolveDemoBundle(fetchError: string | null = null): OwnerCloudBundle {
+  const row = getOwnerDemoSessionRow() ?? getActiveDemoMetricsRow();
+  return {
+    row,
+    insight: buildInsightForMetricsRow(row, null),
+    source: 'demo',
+    isStaticDemo: true,
+    fetchError,
+  };
 }
 
 /**
@@ -58,15 +63,7 @@ export async function resolveOwnerCloudBundle(): Promise<OwnerCloudBundle> {
   const demoOn = allowChronaDemoFallback();
 
   if (!isSupabaseConfigured()) {
-    if (demoOn) {
-      return {
-        row: CHRONA_DEMO_PROCESSED_METRICS_ROW,
-        insight: getChronaDemoInsightRow(),
-        source: 'demo',
-        isStaticDemo: true,
-        fetchError: null,
-      };
-    }
+    if (demoOn) return resolveDemoBundle(null);
     return { row: null, insight: null, source: 'empty', isStaticDemo: false, fetchError: null };
   }
 
@@ -113,27 +110,13 @@ export async function resolveOwnerCloudBundle(): Promise<OwnerCloudBundle> {
     }
 
     if (!latest && demoOn) {
-      return {
-        row: CHRONA_DEMO_PROCESSED_METRICS_ROW,
-        insight: getChronaDemoInsightRow(),
-        source: 'demo',
-        isStaticDemo: true,
-        fetchError: null,
-      };
+      return resolveDemoBundle(null);
     }
 
     return { row: null, insight: null, source: 'empty', isStaticDemo: false, fetchError: null };
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Ошибка загрузки';
-    if (demoOn) {
-      return {
-        row: CHRONA_DEMO_PROCESSED_METRICS_ROW,
-        insight: getChronaDemoInsightRow(),
-        source: 'demo',
-        isStaticDemo: true,
-        fetchError: msg,
-      };
-    }
+    if (demoOn) return resolveDemoBundle(msg);
     return { row: null, insight: null, source: 'empty', isStaticDemo: false, fetchError: msg };
   }
 }

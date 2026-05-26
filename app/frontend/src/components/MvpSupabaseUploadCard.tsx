@@ -1,7 +1,5 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import * as XLSX from 'xlsx';
-import Papa from 'papaparse';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -23,6 +21,11 @@ import {
   ymdDaysAgo,
   ymdToday,
 } from '@/lib/supabaseMetrics';
+import {
+  isFullTestPackTable,
+  parseFullTestPackTable,
+  readSpreadsheetMatrix,
+} from '@/lib/chronaFullTestPack';
 
 export type MvpMetricField =
   | 'ignore'
@@ -47,6 +50,7 @@ const FIELD_OPTIONS: { value: MvpMetricField; label: string }[] = [
 
 function guessField(header: string): MvpMetricField {
   const h = header.toLowerCase();
+  if (/^block$|блок|тип|section/i.test(h)) return 'ignore';
   if (/^date$|дата|period|месяц|month/i.test(h)) return 'date';
   if (/spend|расход|затрат|ads|реклам/i.test(h)) return 'spend';
   if (/lead|лид/i.test(h)) return 'leads';
@@ -79,58 +83,34 @@ function toYmdCell(v: unknown): string | null {
   return null;
 }
 
-function matrixFromFile(file: File): Promise<{ headers: string[]; rows: unknown[][] }> {
-  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-  return new Promise((resolve, reject) => {
-    if (ext === 'csv') {
-      Papa.parse(file, {
-        complete: (res) => {
-          const data = res.data as unknown[][];
-          const headers = (data[0] ?? []).map((c) => String(c ?? '').trim() || 'column');
-          const rows = data.slice(1).filter((r) => Array.isArray(r) && r.some((c) => c !== '' && c != null));
-          resolve({ headers, rows });
-        },
-        error: (e) => reject(e),
-      });
-      return;
-    }
-    if (ext === 'xlsx' || ext === 'xls') {
-      const reader = new FileReader();
-      reader.onload = () => {
-        try {
-          const wb = XLSX.read(reader.result, { type: 'array', cellDates: true });
-          const sheet = wb.Sheets[wb.SheetNames[0]];
-          const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as unknown[][];
-          const headers = (matrix[0] ?? []).map((c) => String(c ?? '').trim() || 'column');
-          const rows = matrix.slice(1).filter((r) => Array.isArray(r) && r.some((c) => c !== '' && c != null));
-          resolve({ headers, rows });
-        } catch (err) {
-          reject(err);
-        }
-      };
-      reader.onerror = () => reject(new Error('read failed'));
-      reader.readAsArrayBuffer(file);
-      return;
-    }
-    reject(new Error('unsupported'));
-  });
-}
-
 type Props = { companyId: string };
 
 export function MvpSupabaseUploadCard({ companyId }: Props) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [fileName, setFileName] = useState('');
+  const [sheetName, setSheetName] = useState('');
   const [headers, setHeaders] = useState<string[]>([]);
   const [bodyRows, setBodyRows] = useState<unknown[][]>([]);
   const [colMap, setColMap] = useState<Record<number, MvpMetricField>>({});
+  const [isBlockTable, setIsBlockTable] = useState(false);
+
+  const blockPreview = useMemo(() => {
+    if (!isBlockTable || headers.length === 0 || bodyRows.length === 0) return null;
+    try {
+      return parseFullTestPackTable(headers, bodyRows);
+    } catch {
+      return null;
+    }
+  }, [isBlockTable, headers, bodyRows]);
 
   const reset = useCallback(() => {
     setFileName('');
+    setSheetName('');
     setHeaders([]);
     setBodyRows([]);
     setColMap({});
+    setIsBlockTable(false);
   }, []);
 
   const onPickFile = useCallback(
@@ -143,14 +123,24 @@ export function MvpSupabaseUploadCard({ companyId }: Props) {
       }
       setBusy(true);
       try {
-        const { headers: h, rows } = await matrixFromFile(file);
+        const { headers: h, rows, sheetName: sn } = await readSpreadsheetMatrix(file);
         if (h.length === 0) {
           toast.error('Пустой файл');
           return;
         }
         setFileName(file.name);
+        setSheetName(sn);
         setHeaders(h);
         setBodyRows(rows);
+
+        if (isFullTestPackTable(h)) {
+          setIsBlockTable(true);
+          setColMap({});
+          toast.success('Таблица с колонкой block — свод, каналы и контент загрузятся вместе');
+          return;
+        }
+
+        setIsBlockTable(false);
         const initial: Record<number, MvpMetricField> = {};
         h.forEach((header, i) => {
           initial[i] = guessField(header);
@@ -168,7 +158,52 @@ export function MvpSupabaseUploadCard({ companyId }: Props) {
     [reset],
   );
 
-  const onSave = useCallback(async () => {
+  const saveBlockTable = useCallback(async () => {
+    if (!companyId || !isSupabaseConfigured() || !blockPreview) {
+      toast.error('Не удалось разобрать таблицу');
+      return;
+    }
+    setBusy(true);
+    try {
+      await insertConnectedSource({
+        type: 'upload',
+        status: 'active',
+        meta: { fileName, sheetName, kind: 'block_table' },
+      });
+      await insertProcessedMetricsRow({
+        period_start: blockPreview.periodStart,
+        period_end: blockPreview.periodEnd,
+        spend: blockPreview.spend,
+        leads: blockPreview.leads,
+        deals: blockPreview.deals,
+        revenue: blockPreview.revenue,
+        cash_inflow: blockPreview.cashInflow,
+        cash_outflow: blockPreview.cashOutflow,
+        net_cash: blockPreview.netCash,
+        raw_data: {
+          source: 'block_table_upload',
+          fileName,
+          periodRowCount: blockPreview.periodRowCount,
+          marketing: {
+            channels: blockPreview.channels,
+            content: blockPreview.content,
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      });
+      toast.success(
+        `Сохранено: свод (${blockPreview.periodRowCount} строк), каналов ${blockPreview.channels.length}, контента ${blockPreview.content.length}`,
+      );
+      reset();
+      navigate('/dashboard');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Ошибка сохранения');
+    } finally {
+      setBusy(false);
+    }
+  }, [blockPreview, companyId, fileName, navigate, reset, sheetName]);
+
+  const onSaveSimple = useCallback(async () => {
     if (!companyId || !isSupabaseConfigured()) {
       toast.error('Нет компании или Supabase');
       return;
@@ -256,11 +291,12 @@ export function MvpSupabaseUploadCard({ companyId }: Props) {
       <CardHeader>
         <CardTitle className="text-lg flex items-center gap-2">
           <CloudUpload className="h-5 w-5 text-primary" />
-          Свод для главного экрана
+          Загрузка таблицы
         </CardTitle>
         <CardDescription>
-          Загрузите таблицу и сопоставьте колонки: расходы, лиды, сделки, выручка, приток и отток денег. Сохраняется в
-          облако — главный экран строится из этой строки периода.
+          CSV или Excel. Простой свод (date, spend, leads…) или таблица с колонкой{' '}
+          <span className="font-mono text-xs">block</span> (значения: свод, канал, контент) — тогда главный экран,
+          маркетинг и разбор заполняются из одного файла.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -268,13 +304,33 @@ export function MvpSupabaseUploadCard({ companyId }: Props) {
           <Button type="button" variant="secondary" disabled={busy} asChild>
             <label className="cursor-pointer">
               <input type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={onPickFile} />
-              Выбрать CSV / Excel
+              Выбрать файл
             </label>
           </Button>
-          {fileName ? <span className="text-sm text-muted-foreground truncate max-w-[200px]">{fileName}</span> : null}
+          {fileName ? <span className="text-sm text-muted-foreground truncate max-w-[240px]">{fileName}</span> : null}
         </div>
 
-        {headers.length > 0 && (
+        {isBlockTable && blockPreview ? (
+          <div className="space-y-3 rounded-lg border border-border/80 bg-card/80 p-4">
+            <p className="text-sm font-medium text-foreground">Сводная таблица (block)</p>
+            <ul className="text-xs text-muted-foreground space-y-1">
+              <li>
+                Период: {blockPreview.periodStart} — {blockPreview.periodEnd}
+              </li>
+              <li>
+                Свод: {blockPreview.periodRowCount} строк · {blockPreview.leads} лидов · {blockPreview.deals} сделок
+              </li>
+              <li>
+                Маркетинг: {blockPreview.channels.length} каналов · {blockPreview.content.length} постов
+              </li>
+            </ul>
+            <Button type="button" className="w-full sm:w-auto" disabled={busy} onClick={() => void saveBlockTable()}>
+              {busy ? 'Сохранение…' : 'Сохранить и открыть дашборд'}
+            </Button>
+          </div>
+        ) : null}
+
+        {!isBlockTable && headers.length > 0 ? (
           <div className="space-y-3 rounded-lg border border-border/80 bg-card/80 p-4">
             <p className="text-sm font-medium text-foreground">Сопоставление колонок</p>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -299,11 +355,11 @@ export function MvpSupabaseUploadCard({ companyId }: Props) {
                 </div>
               ))}
             </div>
-            <Button type="button" className="w-full sm:w-auto" disabled={busy} onClick={() => void onSave()}>
+            <Button type="button" className="w-full sm:w-auto" disabled={busy} onClick={() => void onSaveSimple()}>
               {busy ? 'Сохранение…' : 'Сохранить и открыть дашборд'}
             </Button>
           </div>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );

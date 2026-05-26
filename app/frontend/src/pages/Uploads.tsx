@@ -41,7 +41,7 @@ export default function UploadsPage() {
 
   return (
     <AppLayout>
-      <div className="chrona-page max-w-2xl space-y-6">
+      <div className="chrona-page max-w-3xl space-y-6">
         <div className="chrona-tier-1">
           <h1 className="rct-page-title">Данные</h1>
           <p className="rct-body-micro mt-1 text-muted-foreground">

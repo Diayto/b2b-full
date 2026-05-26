@@ -8,9 +8,10 @@ import MarketingSupplementUpload from '@/components/MarketingSupplementUpload';
 import EmptyStateCard from '@/components/controltower/EmptyStateCard';
 import {
   resolveOwnerCloudBundle,
+  buildInsightForMetricsRow,
   type OwnerCloudBundle,
 } from '@/lib/ownerCloudBundle';
-import { CHRONA_DEMO_PROCESSED_METRICS_ROW, allowChronaDemoFallback } from '@/lib/chronaDemoPreview';
+import { allowChronaDemoFallback, getActiveDemoMetricsRow } from '@/lib/chronaDemoPreview';
 import { buildFunnelBreakdown } from '@/lib/chronaSourceCredibility';
 import { parseMatchedRule } from '@/lib/insightExecutionPlan';
 import {
@@ -45,9 +46,10 @@ export default function MarketingPage() {
       setBundle(await resolveOwnerCloudBundle());
     } catch {
       if (allowChronaDemoFallback()) {
+        const row = getActiveDemoMetricsRow();
         setBundle({
-          row: CHRONA_DEMO_PROCESSED_METRICS_ROW,
-          insight: null,
+          row,
+          insight: buildInsightForMetricsRow(row, null),
           source: 'demo',
           isStaticDemo: true,
           fetchError: null,

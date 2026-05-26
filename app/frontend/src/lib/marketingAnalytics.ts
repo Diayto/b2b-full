@@ -34,26 +34,8 @@ export type MarketingBundle = {
   content: MarketingContentRow[];
 };
 
-const DEMO_MARKETING: MarketingBundle = {
-  channels: [
-    { name: 'Instagram organic', spend: 180_000, leads: 22, deals: 2, revenue: 890_000 },
-    { name: 'Meta Ads', spend: 520_000, leads: 14, deals: 2, revenue: 1_120_000 },
-    { name: 'Referral', spend: 0, leads: 6, deals: 1, revenue: 640_000 },
-  ],
-  content: [
-    { id: 'video_23', title: 'Ошибки в CV', reach: 124_000, leads: 11, conversions: 2 },
-    { id: 'video_18', title: 'Как пройти собеседование', reach: 86_000, leads: 9, conversions: 1 },
-    { id: 'video_31', title: 'Стипендии 2026', reach: 52_000, leads: 7, conversions: 1 },
-    { id: 'video_12', title: 'История выпускника', reach: 41_000, leads: 5, conversions: 1 },
-    { id: 'video_05', title: 'День из жизни студента', reach: 28_000, leads: 3, conversions: 0 },
-  ],
-};
-
 export function extractMarketingBundle(raw: Record<string, unknown> | null | undefined): MarketingBundle {
   if (!raw) return { channels: [], content: [] };
-  if (raw.source === 'chrona_demo_preview') {
-    return DEMO_MARKETING;
-  }
   const m = raw.marketing as Record<string, unknown> | undefined;
   if (!m) return { channels: [], content: [] };
   const channels = Array.isArray(m.channels)

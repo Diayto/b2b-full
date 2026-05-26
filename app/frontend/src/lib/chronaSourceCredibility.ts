@@ -2,26 +2,6 @@ import type { ProcessedMetricsRow } from '@/lib/supabaseMetrics';
 import { formatKZT } from '@/lib/metrics';
 import type { InsightRuleId } from '@/lib/insightEngine';
 
-/** Coherent demo narrative aligned with CHRONA_DEMO_PROCESSED_METRICS_ROW (42 leads, 5 deals). */
-export const CHRONA_DEMO_INSTAGRAM_SIGNAL = {
-  handle: '@chrona.service',
-  followersLabel: '18,4 тыс.',
-  reachLabel: '124 тыс.',
-  engagementRateLabel: '4,2%',
-  leadsAttributed: 28,
-  interpretation:
-    'Канал даёт охват и заявки; по данным периода основная потеря — после входа лида в продажи.',
-} as const;
-
-export const CHRONA_DEMO_TABLE_SIGNAL = {
-  title: 'Сводная таблица',
-  subtitle: 'Excel → облако',
-  leadsInSvod: 42,
-  dealsInSvod: 5,
-  revenueLabel: '2,65 млн ₸',
-  interpretation: 'Финансовый снимок и воронка сведены в одну строку периода для главного экрана.',
-} as const;
-
 export type InstagramSourceSignal = {
   handle: string;
   followersLabel: string;
@@ -40,8 +20,31 @@ export type TableSourceSignal = {
   interpretation: string;
 };
 
-function isPackagedDemo(row: ProcessedMetricsRow, raw: Record<string, unknown>): boolean {
-  return raw.source === 'chrona_demo_preview' || raw.scenario === 'sales_bottleneck';
+function isPackagedDemo(_row: ProcessedMetricsRow, raw: Record<string, unknown>): boolean {
+  return raw.source === 'chrona_demo_preview';
+}
+
+function demoInstagramFromRaw(raw: Record<string, unknown>, row: ProcessedMetricsRow): InstagramSourceSignal {
+  const m = (raw.marketing as Record<string, unknown> | undefined) ?? {};
+  const ig = (m.instagram as Record<string, unknown> | undefined) ?? {};
+  const handle = typeof ig.handle === 'string' ? ig.handle : '@chrona.demo';
+  const followers =
+    typeof ig.followers === 'number' ? `${(ig.followers / 1000).toFixed(1)} тыс.` : '—';
+  const reach = typeof ig.reach === 'number' ? `${Math.round(ig.reach / 1000)} тыс.` : '—';
+  const er = typeof ig.engagement_rate === 'number' ? `${ig.engagement_rate.toFixed(1)}%` : '—';
+  const igLeads =
+    Array.isArray(m.channels) && m.channels[0]
+      ? Math.round(Number((m.channels[0] as Record<string, unknown>).leads) || 0)
+      : Math.round(Number(row.leads) * 0.5);
+  const scenario = typeof raw.scenarioLabel === 'string' ? raw.scenarioLabel : 'демо-период';
+  return {
+    handle: handle.startsWith('@') ? handle : `@${handle}`,
+    followersLabel: followers,
+    reachLabel: reach,
+    engagementRateLabel: er,
+    leadsAttributed: Math.min(igLeads, Number(row.leads) || igLeads),
+    interpretation: `Демо-снимок «${scenario}»: канал даёт заявки; сверьте с общей воронкой периода.`,
+  };
 }
 
 export function resolveInstagramSignal(
@@ -49,7 +52,7 @@ export function resolveInstagramSignal(
   raw: Record<string, unknown>,
 ): InstagramSourceSignal | null {
   if (isPackagedDemo(row, raw)) {
-    return { ...CHRONA_DEMO_INSTAGRAM_SIGNAL };
+    return demoInstagramFromRaw(raw, row);
   }
   if (raw.source === 'instagram_pipeline') {
     const ig = (raw.instagram as Record<string, unknown> | undefined) ?? {};
@@ -73,12 +76,21 @@ export function resolveInstagramSignal(
 }
 
 export function resolveTableSourceSignal(row: ProcessedMetricsRow, raw: Record<string, unknown>): TableSourceSignal {
-  if (isPackagedDemo(row, raw)) {
-    return { ...CHRONA_DEMO_TABLE_SIGNAL };
-  }
   const leads = Math.round(Number(row.leads) || 0);
   const deals = Math.round(Number(row.deals) || 0);
   const rev = formatKZT(Number(row.revenue) || 0);
+
+  if (isPackagedDemo(row, raw)) {
+    const label = typeof raw.scenarioLabel === 'string' ? raw.scenarioLabel : 'Демо-сценарий';
+    return {
+      title: 'Демо-снимок',
+      subtitle: label,
+      leadsInSvod: leads,
+      dealsInSvod: deals,
+      revenueLabel: rev,
+      interpretation: 'Случайный сценарий для показа — каждый запуск демо генерирует новые цифры.',
+    };
+  }
   if (raw.source === 'csv_xlsx_upload' || raw.source === 'manual_demo') {
     return {
       title: typeof raw.note === 'string' ? 'Загрузка' : 'Таблица',
@@ -128,17 +140,21 @@ export function buildFunnelBreakdown(
   const deals = Math.round(Number(row.deals) || 0);
 
   if (isPackagedDemo(row, raw)) {
-    const qualified = 18;
+    const qualified = Math.max(deals, Math.min(Math.max(leads - 1, 0), Math.round(leads * 0.42)));
+    const scenario = String(raw.scenario ?? '');
+    const mainDropByScenario: Record<string, string> = {
+      sales_bottleneck: 'Демо: много заявок, мало сделок — проверьте продажи и follow-up.',
+      marketing_bottleneck: 'Демо: расход есть, лидов мало — проблема в верхней части воронки.',
+      cash_gap: 'Демо: выручка в отчёте есть, кэш отстаёт — смотрите сроки оплат.',
+      stable_growth: 'Демо: период ровный — можно точечно усилить лучший канал.',
+    };
     return {
       stages: [
         { label: 'Заявки в периоде', count: leads },
-        { label: 'Дошли до квалифицирующего разговора', count: qualified },
+        { label: 'Квалифицирующий контакт (оценка)', count: qualified },
         { label: 'Сделки', count: deals },
       ],
-      mainDrop:
-        rule === 1 || rule === null
-          ? 'Самый большой отвал — после заявки: до сделки доходит мало лидов при нормальном верхе воронки.'
-          : 'Смотрите цепочку на главном экране и цифры ниже.',
+      mainDrop: mainDropByScenario[scenario] ?? 'Сверьте этапы с приоритетом периода на главном экране.',
     };
   }
 

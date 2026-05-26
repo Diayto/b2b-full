@@ -1,12 +1,13 @@
-const DEFAULT_MODEL = 'gpt-4o-mini';
-const MAX_QUESTION_LEN = 2000;
+import {
+  MAX_QUESTION_LEN,
+  MIN_QUESTION_LEN,
+  SYSTEM_PROMPT,
+  detectQuestionTopic,
+  pickResponseStyleHint,
+  validateOwnerQuestion,
+} from './owner-assistant-validate.js';
 
-const SYSTEM_PROMPT = `Ты — бизнес-ассистент Chrona (Revenue Control Tower) для владельца малого и среднего бизнеса.
-Отвечай на русском языке, кратко и по делу (3–8 предложений, при необходимости маркированный список до 5 пунктов).
-Опирайся ТОЛЬКО на переданный JSON с метриками периода и выводом системы. Не выдумывай цифры.
-Если данных мало или это демо-превью — скажи честно и предложи загрузить сводную таблицу на странице «Данные».
-Давай практические рекомендации: что сделать на этой неделе, чего не делать, на что смотреть в цифрах.
-Не используй англицизмы вроде leverage/optimize без необходимости.`;
+const DEFAULT_MODEL = 'gpt-4o-mini';
 
 export class OwnerAssistantService {
   constructor({ env }) {
@@ -31,25 +32,33 @@ export class OwnerAssistantService {
     }
 
     const question = String(input?.question ?? '').trim();
-    if (!question) {
-      return { ok: false, statusCode: 400, error: 'Question is required', code: 'question_required' };
-    }
-    if (question.length > MAX_QUESTION_LEN) {
-      return { ok: false, statusCode: 400, error: 'Question is too long', code: 'question_too_long' };
+    const validation = validateOwnerQuestion(question);
+    if (!validation.ok) {
+      return { ok: false, statusCode: 400, ...validation };
     }
 
     const context = input?.context && typeof input.context === 'object' ? input.context : {};
+    const topic = detectQuestionTopic(question);
+    const styleHint = pickResponseStyleHint();
 
     const model = this.env.OPENAI_MODEL || DEFAULT_MODEL;
+    const temperature = 0.55 + Math.random() * 0.15;
+
     const body = {
       model,
-      temperature: 0.4,
-      max_tokens: 800,
+      temperature,
+      max_tokens: 900,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         {
           role: 'user',
-          content: `Контекст бизнеса (JSON):\n${JSON.stringify(context, null, 2)}\n\nВопрос владельца:\n${question}`,
+          content: [
+            `Контекст бизнеса (JSON):\n${JSON.stringify(context, null, 2)}`,
+            `\nТема вопроса (ориентир): ${topic}`,
+            `\nСтиль ответа на этот раз: ${styleHint}`,
+            `\nВопрос владельца:\n${question}`,
+            '\nОтветь по теме вопроса, не пересказывай весь JSON. Если в контексте есть marketing.channels или marketing.content — используй при вопросах о каналах/контенте.',
+          ].join('\n'),
         },
       ],
     };
@@ -66,8 +75,7 @@ export class OwnerAssistantService {
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const msg =
-          data?.error?.message || data?.error || `OpenAI API error HTTP ${res.status}`;
+        const msg = data?.error?.message || data?.error || `OpenAI API error HTTP ${res.status}`;
         return {
           ok: false,
           statusCode: res.status >= 400 && res.status < 600 ? res.status : 502,
@@ -86,6 +94,7 @@ export class OwnerAssistantService {
         statusCode: 200,
         answer,
         model: data?.model || model,
+        topic,
       };
     } catch (e) {
       return {
@@ -97,3 +106,5 @@ export class OwnerAssistantService {
     }
   }
 }
+
+export { MAX_QUESTION_LEN, MIN_QUESTION_LEN, validateOwnerQuestion };

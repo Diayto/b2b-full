@@ -1,4 +1,5 @@
 import type { ProcessedMetricsRow } from '@/lib/supabaseMetrics';
+import { generateRandomDemoRow } from '@/lib/chronaDemoGenerator';
 
 /**
  * Controlled preview mode for UI/product work. Real Supabase rows always win when visible under RLS.
@@ -25,6 +26,7 @@ export function isAcceleratorDemoMode(): boolean {
 
 /** Session flag set from Data page — unified demo for dashboard + breakdown without .env. */
 export const CHRONA_OWNER_DEMO_SESSION_KEY = 'chrona_owner_demo';
+export const CHRONA_OWNER_DEMO_ROW_KEY = 'chrona_owner_demo_row';
 
 export function isOwnerDemoSessionActive(): boolean {
   try {
@@ -34,64 +36,60 @@ export function isOwnerDemoSessionActive(): boolean {
   }
 }
 
-export function setOwnerDemoSessionActive(active: boolean): void {
+/** Start demo session with a fresh random scenario each time. */
+export function activateOwnerDemoSession(): ProcessedMetricsRow {
+  const row = generateRandomDemoRow();
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem(CHRONA_OWNER_DEMO_SESSION_KEY, '1');
+      sessionStorage.setItem(CHRONA_OWNER_DEMO_ROW_KEY, JSON.stringify(row));
+    }
+  } catch {
+    /* private mode */
+  }
+  return row;
+}
+
+export function deactivateOwnerDemoSession(): void {
   try {
     if (typeof sessionStorage === 'undefined') return;
-    if (active) sessionStorage.setItem(CHRONA_OWNER_DEMO_SESSION_KEY, '1');
-    else sessionStorage.removeItem(CHRONA_OWNER_DEMO_SESSION_KEY);
+    sessionStorage.removeItem(CHRONA_OWNER_DEMO_SESSION_KEY);
+    sessionStorage.removeItem(CHRONA_OWNER_DEMO_ROW_KEY);
   } catch {
-    /* quota / private mode */
+    /* quota */
   }
+}
+
+/** @deprecated use activateOwnerDemoSession / deactivateOwnerDemoSession */
+export function setOwnerDemoSessionActive(active: boolean): void {
+  if (active) activateOwnerDemoSession();
+  else deactivateOwnerDemoSession();
+}
+
+export function getOwnerDemoSessionRow(): ProcessedMetricsRow | null {
+  if (!isOwnerDemoSessionActive()) return null;
+  try {
+    const raw = sessionStorage.getItem(CHRONA_OWNER_DEMO_ROW_KEY);
+    if (raw) return JSON.parse(raw) as ProcessedMetricsRow;
+  } catch {
+    /* invalid json */
+  }
+  return activateOwnerDemoSession();
+}
+
+let envFallbackDemoRow: ProcessedMetricsRow | null = null;
+
+/** Active demo row: session (random on each enable) → env fallback (random per tab load). */
+export function getActiveDemoMetricsRow(): ProcessedMetricsRow {
+  const sessionRow = getOwnerDemoSessionRow();
+  if (sessionRow) return sessionRow;
+  if (!envFallbackDemoRow) {
+    envFallbackDemoRow = generateRandomDemoRow();
+  }
+  return envFallbackDemoRow;
 }
 
 /** Demo-style fallback when cloud is empty or unreachable. */
 export function allowChronaDemoFallback(): boolean {
   return isChronaDemoPreviewEnabled() || isAcceleratorDemoMode() || isOwnerDemoSessionActive();
 }
-
-function ymdToday(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function ymdDaysAgo(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
-}
-
-/**
- * Single canonical demo row: triggers rule 1 (lead→deal &lt; 15%, leads ≥ 10) with rich KPI/cash context.
- * IDs are placeholders — never written to Supabase by this module.
- */
-export const CHRONA_DEMO_PROCESSED_METRICS_ROW: ProcessedMetricsRow = {
-  id: '00000000-0000-4000-a000-000000000001',
-  company_id: '00000000-0000-4000-a000-000000000002',
-  period_start: ymdDaysAgo(30),
-  period_end: ymdToday(),
-  spend: 920_000,
-  leads: 42,
-  deals: 5,
-  revenue: 2_650_000,
-  cash_inflow: 1_720_000,
-  cash_outflow: 2_050_000,
-  net_cash: -330_000,
-  raw_data: {
-    source: 'chrona_demo_preview',
-    scenario: 'sales_bottleneck',
-    marketing: {
-      channels: [
-        { name: 'Instagram organic', spend: 180_000, leads: 22, deals: 2, revenue: 890_000 },
-        { name: 'Meta Ads', spend: 520_000, leads: 14, deals: 2, revenue: 1_120_000 },
-        { name: 'Referral', spend: 0, leads: 6, deals: 1, revenue: 640_000 },
-      ],
-      content: [
-        { id: 'video_23', title: 'Ошибки в CV', reach: 124_000, leads: 11, conversions: 2 },
-        { id: 'video_18', title: 'Как пройти собеседование', reach: 86_000, leads: 9, conversions: 1 },
-        { id: 'video_31', title: 'Стипендии 2026', reach: 52_000, leads: 7, conversions: 1 },
-        { id: 'video_12', title: 'История выпускника', reach: 41_000, leads: 5, conversions: 1 },
-        { id: 'video_05', title: 'День из жизни студента', reach: 28_000, leads: 3, conversions: 0 },
-      ],
-    },
-  },
-  created_at: new Date().toISOString(),
-};

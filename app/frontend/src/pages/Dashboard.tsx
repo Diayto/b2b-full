@@ -11,12 +11,12 @@ import type { InsightRow } from '@/lib/supabaseInsights';
 import { buildExecutionPlan, parseMatchedRule } from '@/lib/insightExecutionPlan';
 import {
   resolveOwnerCloudBundle,
-  getChronaDemoInsightRow,
+  buildInsightForMetricsRow,
   type OwnerCloudBundle,
 } from '@/lib/ownerCloudBundle';
 import {
-  CHRONA_DEMO_PROCESSED_METRICS_ROW,
   allowChronaDemoFallback,
+  getActiveDemoMetricsRow,
   isAcceleratorDemoMode,
   isOwnerDemoSessionActive,
 } from '@/lib/chronaDemoPreview';
@@ -48,9 +48,10 @@ export default function DashboardPage() {
       setBundle(b);
     } catch {
       if (allowChronaDemoFallback()) {
+        const row = getActiveDemoMetricsRow();
         setBundle({
-          row: CHRONA_DEMO_PROCESSED_METRICS_ROW,
-          insight: getChronaDemoInsightRow(),
+          row,
+          insight: buildInsightForMetricsRow(row, null),
           source: 'demo',
           isStaticDemo: true,
           fetchError: null,
