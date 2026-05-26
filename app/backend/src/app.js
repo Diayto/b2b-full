@@ -11,6 +11,7 @@ import { createActionRoutes } from './routes/actions.js';
 import { createDealsRoutes } from './routes/deals.js';
 import { createLinkageRoutes } from './routes/linkage.js';
 import { createInstagramConnectorRoutes } from './routes/connectors-instagram.js';
+import { createAiAssistantRoutes } from './routes/ai-assistant.js';
 
 export function createApp({
   corsOrigin,
@@ -29,6 +30,7 @@ export function createApp({
   instagramSourcesService,
   instagramOAuthService,
   instagramLivePullService,
+  ownerAssistantService,
 }) {
   const app = express();
 
@@ -49,6 +51,7 @@ export function createApp({
     instagramOAuthService,
     instagramLivePullService,
   }));
+  app.use('/api', createAiAssistantRoutes({ ownerAssistantService }));
   app.use('/api', createContentMetricsRoutes({
     contentMetricsService,
     contentMetricsIngestionService,

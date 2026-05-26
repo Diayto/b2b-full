@@ -18,6 +18,8 @@ import {
   allowChronaDemoFallback,
 } from '@/lib/chronaDemoPreview';
 import { buildFunnelBreakdown } from '@/lib/chronaSourceCredibility';
+import { buildOwnerAssistantContext } from '@/lib/ownerAssistantContext';
+import OwnerAiAssistant from '@/components/OwnerAiAssistant';
 import { ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -97,6 +99,7 @@ export default function OwnerInsightsPage() {
   const ctxRows = formatDataContext(insight?.data_context ?? null);
   const raw = (row?.raw_data ?? {}) as Record<string, unknown>;
   const funnel = row ? buildFunnelBreakdown(row, raw, rule) : null;
+  const assistantContext = buildOwnerAssistantContext(bundle, row, insight);
 
   return (
     <AppLayout>
@@ -203,6 +206,8 @@ export default function OwnerInsightsPage() {
 
           </>
         )}
+
+        {!loading ? <OwnerAiAssistant context={assistantContext} /> : null}
       </div>
     </AppLayout>
   );

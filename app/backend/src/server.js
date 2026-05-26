@@ -17,6 +17,7 @@ import { OperatorControlService } from './services/system/operator-control-servi
 import { InstagramSourcesService } from './services/connectors/instagram-sources-service.js';
 import { InstagramOAuthService } from './services/connectors/instagram-oauth-service.js';
 import { InstagramLivePullService } from './services/connectors/instagram-live-pull-service.js';
+import { OwnerAssistantService } from './services/ai/owner-assistant-service.js';
 
 let server;
 let notificationService;
@@ -66,6 +67,8 @@ async function bootstrap() {
     instagramSourcesService,
     contentMetricsIngestionService,
   });
+  const ownerAssistantService = new OwnerAssistantService({ env });
+
   const pilotReadinessService = new PilotReadinessService({
     contentMetricsService,
     actionItemsService,
@@ -89,6 +92,7 @@ async function bootstrap() {
     instagramSourcesService,
     instagramOAuthService,
     instagramLivePullService,
+    ownerAssistantService,
   });
 
   server = app.listen(env.PORT, () => {

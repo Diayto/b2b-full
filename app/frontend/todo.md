@@ -16,6 +16,11 @@
 3. `/insights` — разбор правил
 4. `/settings` — профиль, сброс данных в облаке
 
+## ИИ-ассистент («Разбор»)
+
+- `POST /api/ai/owner-assistant` на бэкенде, контекст = метрики + инсайт из Supabase
+- `OPENAI_API_KEY` в `app/backend/.env` (не во фронт)
+
 ## Env (frontend)
 
 См. `app/frontend/.env.example`

@@ -38,4 +38,7 @@ export const env = {
   INSTAGRAM_OAUTH_FRONTEND_REDIRECT_BASE: toOptionalString(process.env.INSTAGRAM_OAUTH_FRONTEND_REDIRECT_BASE),
   /** Path appended to redirect base (default /marketing/data) */
   INSTAGRAM_OAUTH_FRONTEND_PATH: toOptionalString(process.env.INSTAGRAM_OAUTH_FRONTEND_PATH) || '/uploads',
+
+  OPENAI_API_KEY: toOptionalString(process.env.OPENAI_API_KEY),
+  OPENAI_MODEL: toOptionalString(process.env.OPENAI_MODEL) || 'gpt-4o-mini',
 };
