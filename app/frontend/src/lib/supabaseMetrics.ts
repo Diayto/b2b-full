@@ -115,6 +115,31 @@ export async function insertProcessedMetricsRow(input: InsertProcessedMetricsInp
   return { id: data.id as string };
 }
 
+/** Merge channel/content breakdown into the latest metrics row (marketing screen). */
+export async function patchLatestMarketingData(
+  patch: { channels?: unknown[]; content?: unknown[] },
+): Promise<void> {
+  const sb = getSupabaseClient();
+  const latest = await fetchLatestProcessedMetrics();
+  if (!latest) {
+    throw new Error('Сначала загрузите свод периода на странице «Данные»');
+  }
+
+  const raw = { ...(latest.raw_data ?? {}) } as Record<string, unknown>;
+  const prev = (raw.marketing as Record<string, unknown> | undefined) ?? {};
+  raw.marketing = {
+    ...prev,
+    ...(patch.channels ? { channels: patch.channels } : {}),
+    ...(patch.content ? { content: patch.content } : {}),
+    updatedAt: new Date().toISOString(),
+  };
+
+  const { error } = await sb.from('processed_metrics').update({ raw_data: raw }).eq('id', latest.id);
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
 export async function insertConnectedSource(params: {
   type: 'upload' | 'instagram';
   status: 'pending' | 'active' | 'error';

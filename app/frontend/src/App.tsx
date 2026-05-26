@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard';
 import OwnerInsights from './pages/OwnerInsights';
 import Uploads from './pages/Uploads';
 import Settings from './pages/Settings';
+import Marketing from './pages/Marketing';
 import NotFound from './pages/NotFound';
 import RouteErrorBoundary from './components/RouteErrorBoundary';
 import { AuthProvider } from './components/AuthProvider';
@@ -27,10 +28,11 @@ function AppRoutes() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/insights" element={<OwnerInsights />} />
           <Route path="/uploads" element={<Uploads />} />
+          <Route path="/marketing" element={<Marketing />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
 
-        <Route path="/marketing/*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/marketing/*" element={<Navigate to="/marketing" replace />} />
         <Route path="/sales-cash" element={<Navigate to="/dashboard" replace />} />
         <Route path="/documents" element={<Navigate to="/uploads" replace />} />
         <Route path="/plan" element={<Navigate to="/dashboard" replace />} />

@@ -1,5 +1,5 @@
 // ============================================================
-// Chrona — Owner MVP shell (4 surfaces only)
+// Chrona — Owner MVP shell
 // ============================================================
 
 import { useState } from 'react';
@@ -17,6 +17,7 @@ import {
   Menu,
   Lightbulb,
   User,
+  Megaphone,
 } from 'lucide-react';
 import { clearSession, getCurrentUser } from '@/lib/store';
 import { isSupabaseConfigured } from '@/lib/supabaseClient';
@@ -32,6 +33,7 @@ interface NavItem {
 const ownerNav: NavItem[] = [
   { label: 'Главный экран', path: '/dashboard', icon: <LayoutDashboard className="h-5 w-5 shrink-0" /> },
   { label: 'Данные', path: '/uploads', icon: <Upload className="h-5 w-5 shrink-0" /> },
+  { label: 'Маркетинг', path: '/marketing', icon: <Megaphone className="h-5 w-5 shrink-0" /> },
   { label: 'Разбор', path: '/insights', icon: <Lightbulb className="h-5 w-5 shrink-0" /> },
   { label: 'Профиль', path: '/settings', icon: <User className="h-5 w-5 shrink-0" /> },
 ];
@@ -84,7 +86,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {ownerNav.map((item) => {
           const isActive =
             location.pathname === item.path ||
-            (item.path === '/uploads' && location.pathname.startsWith('/uploads'));
+            (item.path === '/uploads' && location.pathname.startsWith('/uploads')) ||
+            (item.path === '/marketing' && location.pathname.startsWith('/marketing'));
           return (
             <Link
               key={item.path}

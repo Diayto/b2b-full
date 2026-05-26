@@ -9,12 +9,13 @@
 - **Таблица:** `MvpSupabaseUploadCard` на `/uploads` — агрегат в облако
 - **Instagram:** `InstagramConnectCard` на `/uploads` + backend OAuth (`VITE_API_BASE_URL`)
 
-## Экраны (4)
+## Экраны (5)
 
 1. `/dashboard` — главный экран, KPI, инсайт
 2. `/uploads` — Instagram + загрузка сводной таблицы
-3. `/insights` — разбор правил
-4. `/settings` — профиль, сброс данных в облаке
+3. `/marketing` — CPL, воронка, каналы, топ контента (+ CSV разбивка)
+4. `/insights` — разбор правил
+5. `/settings` — профиль, сброс данных в облаке
 
 ## ИИ-ассистент («Разбор»)
 
